@@ -14,16 +14,10 @@ export async function action({ request }) {
     return json({ error: "Todos os campos são obrigatórios" }, { status: 400 });
   }
 
-  // Valida se dom_licenca é uma URL válida
   try {
     new URL(dom_licenca);
   } catch {
     return json({ error: "Domínio da API inválido" }, { status: 400 });
-  }
-
-  // Garante que dom_licenca termina com /api/v1.0.4
-  if (!dom_licenca.endsWith("/api/v1.0.4")) {
-    dom_licenca = dom_licenca.replace(/\/+$/, "") + "/api/v1.0.4";
   }
 
   try {
@@ -44,9 +38,8 @@ export async function action({ request }) {
     }
 
     const data = await res.json();
-    console.log("Resposta da API:", data); // Debug
+    console.log("Resposta da API:", data);
 
-    // Valida a presença do token
     const token = data._token;
     if (!token) {
       return json(
@@ -55,7 +48,6 @@ export async function action({ request }) {
       );
     }
 
-    // Salva no Prisma
     await prisma.gesFaturacaoLogin.create({
       data: {
         dom_licenca,

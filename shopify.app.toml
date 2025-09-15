@@ -2,7 +2,7 @@
 
 client_id = "c15a6ca82509b5d77ffdec91ea2cd916"
 name = "gesfaturacao"
-application_url = "https://promotional-bizarre-medicines-brighton.trycloudflare.com"
+application_url = "http://localhost:64503"
 embedded = true
 handle = "gesfaturacao-3"
 
@@ -22,11 +22,14 @@ api_version = "2025-07"
   uri = "/webhooks/app/scopes_update"
 
 [access_scopes]
-# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
 scopes = "write_products"
 
 [auth]
-redirect_urls = ["https://promotional-bizarre-medicines-brighton.trycloudflare.com/auth/callback", "https://promotional-bizarre-medicines-brighton.trycloudflare.com/auth/shopify/callback", "https://promotional-bizarre-medicines-brighton.trycloudflare.com/api/auth/callback"]
+redirect_urls = [
+  "http://localhost:64503/auth/callback",
+  "http://localhost:64503/auth/shopify/callback",
+  "http://localhost:64503/api/auth/callback"
+]
 
 [pos]
 embedded = false

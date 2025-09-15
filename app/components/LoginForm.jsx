@@ -38,8 +38,7 @@ export default function LoginForm() {
           aria-describedby="dom_licenca_help"
         />
         <div id="dom_licenca_help" className="form-text text-muted">
-          Introduza o domínio da API GesFaturacao (ex:
-          https://development.gesfaturacao.pt/api/v1.0.4).
+          Introduza o Link da API GESFaturacao
         </div>
       </div>
 

@@ -1,7 +1,7 @@
 import { redirect } from "@remix-run/node";
 
 export const loader = async () => {
-  return redirect("/gesfaturacao/ges-login.jsx");
+  return redirect("/ges-login");
 };
 
 export default function GesFaturacaoIndex() {
