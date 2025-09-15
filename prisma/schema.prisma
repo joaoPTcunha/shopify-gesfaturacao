@@ -1,0 +1,50 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:dev.sqlite"
+}
+
+model Session {
+  id            String    @id
+  shop          String
+  state         String
+  isOnline      Boolean   @default(false)
+  scope         String?
+  expires       DateTime?
+  accessToken   String
+  userId        BigInt?
+  firstName     String?
+  lastName      String?
+  email         String?
+  accountOwner  Boolean   @default(false)
+  locale        String?
+  collaborator  Boolean?  @default(false)
+  emailVerified Boolean?  @default(false)
+}
+
+model GesFaturacaoLogin {
+  id                Int      @id @default(autoincrement())
+  dom_licenca      String
+  token            String
+  id_serie         String
+  id_product_shipping String
+  finalized        Boolean  @default(false)
+  email_auto       Boolean  @default(false)
+  invoice_auto     Boolean  @default(false)
+  date_login       String
+  date_expire      String
+}
+
+model GesFaturacaoInvoices {
+  id              Int      @id @default(autoincrement())
+  order_id        String
+  order_total     String
+  invoice_id      String
+  invoice_number  String
+  invoice_total   String
+  invoice_date    DateTime?
+  invoice_status  Int
+}
