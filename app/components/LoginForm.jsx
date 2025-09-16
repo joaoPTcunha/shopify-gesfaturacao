@@ -34,7 +34,6 @@ export default function LoginForm() {
           id="dom_licenca"
           name="dom_licenca"
           required
-          placeholder="https://development.gesfaturacao.pt/api/v1.0.4"
           aria-describedby="dom_licenca_help"
         />
         <div id="dom_licenca_help" className="form-text text-muted">

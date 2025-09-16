@@ -2,7 +2,7 @@
 
 client_id = "c15a6ca82509b5d77ffdec91ea2cd916"
 name = "gesfaturacao"
-application_url = "http://localhost:64503"
+application_url = "https://wisconsin-jumping-pamela-brothers.trycloudflare.com"
 embedded = true
 handle = "gesfaturacao-3"
 
@@ -25,11 +25,7 @@ api_version = "2025-07"
 scopes = "write_products"
 
 [auth]
-redirect_urls = [
-  "http://localhost:64503/auth/callback",
-  "http://localhost:64503/auth/shopify/callback",
-  "http://localhost:64503/api/auth/callback"
-]
+redirect_urls = ["https://wisconsin-jumping-pamela-brothers.trycloudflare.com/auth/callback", "https://wisconsin-jumping-pamela-brothers.trycloudflare.com/auth/shopify/callback", "https://wisconsin-jumping-pamela-brothers.trycloudflare.com/api/auth/callback"]
 
 [pos]
 embedded = false

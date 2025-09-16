@@ -25,26 +25,59 @@ model Session {
   emailVerified Boolean?  @default(false)
 }
 
-model GesFaturacaoLogin {
-  id                Int      @id @default(autoincrement())
-  dom_licenca      String
-  token            String
-  id_serie         String
+model GESlogin {
+  id                  Int     @id @default(autoincrement())
+  dom_licenca         String
+  token               String
+  id_serie            String
   id_product_shipping String
-  finalized        Boolean  @default(false)
-  email_auto       Boolean  @default(false)
-  invoice_auto     Boolean  @default(false)
-  date_login       String
-  date_expire      String
+  finalized           Boolean @default(false)
+  email_auto          Boolean @default(false)
+  invoice_auto        Boolean @default(false)
+  date_login          String
+  date_expire         String
 }
 
-model GesFaturacaoInvoices {
-  id              Int      @id @default(autoincrement())
-  order_id        String
-  order_total     String
-  invoice_id      String
-  invoice_number  String
-  invoice_total   String
-  invoice_date    DateTime?
-  invoice_status  Int
+model GESinvoices {
+  id             Int       @id @default(autoincrement())
+  order_id       String
+  order_total    String
+  invoice_id     String
+  invoice_number String
+  invoice_total  String
+  invoice_date   DateTime?
+  invoice_status Int
+}
+
+model SHOorder {
+  id            Int            @id @default(autoincrement())
+  orderNumber   String         @unique
+  customerName  String
+  email         String?
+  orderDate     String
+  totalValue    Float
+  status        String
+  invoiceNumber String?
+  items         SHOorderItem[] @relation("OrderItems")
+  customerId    Int?
+  customer      SHOcustomer?   @relation(fields: [customerId], references: [id])
+}
+
+model SHOorderItem {
+  id        Int      @id @default(autoincrement())
+  orderId   Int
+  order     SHOorder @relation("OrderItems", fields: [orderId], references: [id])
+  title     String
+  quantity  Int
+  unitPrice Float
+}
+
+model SHOcustomer {
+  id         Int        @id @default(autoincrement())
+  customerId String     @unique
+  firstName  String?
+  lastName   String?
+  email      String?
+  phone      String?
+  orders     SHOorder[] @relation
 }
