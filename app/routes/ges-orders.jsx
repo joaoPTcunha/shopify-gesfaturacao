@@ -1,12 +1,13 @@
+// app/routes/orders.jsx
 import pkg from "@remix-run/node";
 const { json } = pkg;
-import OrdersTable from "../components/OrdersTable"; // Importa o componente
+import OrdersTable from "../components/OrdersTable";
 
 export async function loader() {
   try {
     const query = `
       query {
-        orders(first: 5, sortKey: CREATED_AT, reverse: true, query: "financial_status:PAID") {
+        orders(first: 250, sortKey: CREATED_AT, reverse: true, query: "financial_status:PAID") {
           edges {
             node {
               id
@@ -21,6 +22,9 @@ export async function loader() {
               displayFinancialStatus
               customer {
                 id
+                firstName
+                lastName
+                email
               }
               lineItems(first: 5) {
                 edges {
@@ -43,6 +47,30 @@ export async function loader() {
                     value
                   }
                 }
+              }
+              shippingAddress {
+                address1
+                address2
+                city
+                province
+                country
+                zip
+                phone
+              }
+              billingAddress {
+                address1
+                address2
+                city
+                province
+                country
+                zip
+                phone
+              }
+              note
+              paymentGatewayNames
+              shippingLine {
+                title
+                price
               }
             }
           }
@@ -86,6 +114,10 @@ export async function loader() {
       currency: node.totalPriceSet?.shopMoney?.currencyCode || "N/A",
       status: node.displayFinancialStatus || "N/A",
       customerId: node.customer?.id || "N/A",
+      customerName:
+        `${node.customer?.firstName || ""} ${node.customer?.lastName || ""}`.trim() ||
+        "N/A",
+      customerEmail: node.customer?.email || "N/A",
       invoiceNumber:
         node.metafields?.edges?.find(
           (edge) => edge.node.key === "invoice_number",
@@ -98,6 +130,36 @@ export async function loader() {
             item.originalUnitPriceSet?.shopMoney?.amount || 0,
           ),
         })) || [],
+      shippingAddress: node.shippingAddress
+        ? {
+            address1: node.shippingAddress.address1 || "N/A",
+            address2: node.shippingAddress.address2 || "",
+            city: node.shippingAddress.city || "N/A",
+            province: node.shippingAddress.province || "N/A",
+            country: node.shippingAddress.country || "N/A",
+            zip: node.shippingAddress.zip || "N/A",
+            phone: node.shippingAddress.phone || "N/A",
+          }
+        : null,
+      billingAddress: node.billingAddress
+        ? {
+            address1: node.billingAddress.address1 || "N/A",
+            address2: node.billingAddress.address2 || "",
+            city: node.billingAddress.city || "N/A",
+            province: node.billingAddress.province || "N/A",
+            country: node.billingAddress.country || "N/A",
+            zip: node.billingAddress.zip || "N/A",
+            phone: node.billingAddress.phone || "N/A",
+          }
+        : null,
+      note: node.note || "N/A",
+      paymentGatewayNames: node.paymentGatewayNames || [],
+      shippingLine: node.shippingLine
+        ? {
+            title: node.shippingLine.title || "N/A",
+            price: parseFloat(node.shippingLine.price || 0),
+          }
+        : null,
     }));
 
     return json({ orders, error: null });
@@ -108,5 +170,5 @@ export async function loader() {
 }
 
 export default function Orders() {
-  return <OrdersTable />; // Renderiza o componente OrdersTable
+  return <OrdersTable />;
 }
