@@ -2,13 +2,13 @@
 
 client_id = "c15a6ca82509b5d77ffdec91ea2cd916"
 name = "gesfaturacao"
-application_url = "https://wisconsin-jumping-pamela-brothers.trycloudflare.com"
+application_url = "https://translator-cave-apt-valve.trycloudflare.com"
 embedded = true
-handle = "gesfaturacao-3"
+handle = "gesfaturacao-joaocunha-2025"
 
 [build]
-include_config_on_deploy = true
 automatically_update_urls_on_dev = true
+include_config_on_deploy = true
 
 [webhooks]
 api_version = "2025-07"
@@ -22,10 +22,15 @@ api_version = "2025-07"
   uri = "/webhooks/app/scopes_update"
 
 [access_scopes]
-scopes = "write_products"
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+scopes = "read_customers,read_fulfillments,read_orders,write_fulfillments,write_orders"
 
 [auth]
-redirect_urls = ["https://wisconsin-jumping-pamela-brothers.trycloudflare.com/auth/callback", "https://wisconsin-jumping-pamela-brothers.trycloudflare.com/auth/shopify/callback", "https://wisconsin-jumping-pamela-brothers.trycloudflare.com/api/auth/callback"]
+redirect_urls = [
+  "https://translator-cave-apt-valve.trycloudflare.com/auth/callback",
+  "https://translator-cave-apt-valve.trycloudflare.com/auth/shopify/callback",
+  "https://translator-cave-apt-valve.trycloudflare.com/api/auth/callback"
+]
 
 [pos]
 embedded = false
