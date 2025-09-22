@@ -1,69 +1,251 @@
 import { Form, useActionData, useLoaderData } from "@remix-run/react";
+import { useState, useRef, useEffect } from "react";
 
 export default function ConfigForm() {
-  const { series, currentSerieId, finalized, email_auto, error } =
-    useLoaderData();
+  const {
+    series,
+    services,
+    currentSerieId,
+    currentServiceId,
+    finalized,
+    email_auto,
+    error,
+  } = useLoaderData();
   const actionData = useActionData();
 
+  // State for services search and selected value
+  const [servicesSearch, setServicesSearch] = useState(
+    services?.find((service) => service.id === currentServiceId)?.description ||
+      "",
+  );
+  const [selectedServiceId, setSelectedServiceId] = useState(
+    currentServiceId || "",
+  );
+  const [showServicesDropdown, setShowServicesDropdown] = useState(false);
+
+  // State for series search and selected value
+  const [seriesSearch, setSeriesSearch] = useState(
+    series?.find((serie) => serie.id === currentSerieId)?.name || "",
+  );
+  const [selectedSerieId, setSelectedSerieId] = useState(currentSerieId || "");
+  const [showSeriesDropdown, setShowSeriesDropdown] = useState(false);
+
+  // Refs for dropdown containers
+  const servicesRef = useRef(null);
+  const seriesRef = useRef(null);
+
+  // Filter services by description
+  const filteredServices =
+    services?.filter((service) =>
+      servicesSearch
+        ? service.description
+            ?.toLowerCase()
+            .includes(servicesSearch.toLowerCase())
+        : true,
+    ) || [];
+
+  // Filter series by name
+  const filteredSeries =
+    series?.filter((serie) =>
+      seriesSearch
+        ? serie.name?.toLowerCase().includes(seriesSearch.toLowerCase())
+        : true,
+    ) || [];
+
+  // Handle clicks outside to close dropdowns
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (servicesRef.current && !servicesRef.current.contains(event.target)) {
+        setShowServicesDropdown(false);
+      }
+      if (seriesRef.current && !seriesRef.current.contains(event.target)) {
+        setShowSeriesDropdown(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  // Handle services selection
+  const handleServicesSelect = (service) => {
+    setSelectedServiceId(service.id);
+    setServicesSearch(service.description);
+    setShowServicesDropdown(false);
+  };
+
+  // Handle series selection
+  const handleSeriesSelect = (serie) => {
+    setSelectedSerieId(serie.id);
+    setSeriesSearch(serie.name);
+    setShowSeriesDropdown(false);
+  };
+
+  // Clear services selection
+  const clearServices = () => {
+    setSelectedServiceId("");
+    setServicesSearch("");
+    setShowServicesDropdown(true);
+  };
+
+  // Clear series selection
+  const clearSeries = () => {
+    setSelectedSerieId("");
+    setSeriesSearch("");
+    setShowSeriesDropdown(true);
+  };
+
   return (
-    <Form method="post" className="p-4">
-      <div className="mb-3">
-        <label htmlFor="serie" className="form-label">
+    <Form method="post" className="p-4" lang="pt-PT">
+      {(actionData?.error || error) && (
+        <div className="alert alert-danger">
+          Ocorreu um erro. Por favor, verifique os dados e tente iniciar sessão
+          novamente.
+        </div>
+      )}
+      <div className="mb-3" ref={seriesRef}>
+        <label htmlFor="seriesSearch" className="form-label fw-bold">
           Selecionar Série
         </label>
-        <select
-          id="serie"
-          name="id_serie"
-          className="form-select"
-          defaultValue={currentSerieId}
-          required
-        >
-          <option value="" disabled>
-            Escolha uma série
-          </option>
-          {series && series.length > 0 ? (
-            series.map((serie) => (
-              <option key={serie.id} value={serie.id}>
-                {serie.name}
-              </option>
-            ))
-          ) : (
-            <option value="" disabled>
-              Nenhuma série disponível
-            </option>
+        <div className="dropdown position-relative">
+          <input
+            type="text"
+            id="seriesSearch"
+            className="form-control"
+            placeholder="Introduza o nome da série para filtrar"
+            value={seriesSearch}
+            onChange={(e) => {
+              setSeriesSearch(e.target.value);
+              setSelectedSerieId(""); // Clear selection when typing
+              setShowSeriesDropdown(true);
+            }}
+            onFocus={() => setShowSeriesDropdown(true)}
+            autoComplete="off"
+            required
+          />
+          {seriesSearch.length > 0 && (
+            <button
+              type="button"
+              className="btn position-absolute top-50 end-0 translate-middle-y me-2"
+              style={{ color: "red", fontSize: "1.2rem", padding: "0" }}
+              onClick={clearSeries}
+              title="Limpar seleção"
+            >
+              &times;
+            </button>
           )}
-        </select>
+          <div
+            className={`dropdown-menu ${showSeriesDropdown ? "show" : ""}`}
+            style={{ maxHeight: "200px", overflowY: "auto", width: "100%" }}
+          >
+            {filteredSeries.length > 0 ? (
+              filteredSeries.map((serie) => (
+                <button
+                  key={serie.id}
+                  type="button"
+                  className="dropdown-item"
+                  onClick={() => handleSeriesSelect(serie)}
+                >
+                  {serie.name}
+                </button>
+              ))
+            ) : (
+              <span className="dropdown-item text-muted">
+                Nenhuma série encontrada
+              </span>
+            )}
+          </div>
+        </div>
+        <input type="hidden" name="id_serie" value={selectedSerieId} required />
       </div>
 
-      <div className="mb-3 form-check">
+      <div className="mb-3" ref={servicesRef}>
+        <label htmlFor="servicesSearch" className="form-label fw-bold">
+          Selecionar Portes
+        </label>
+        <div className="dropdown position-relative">
+          <input
+            type="text"
+            id="servicesSearch"
+            className="form-control"
+            placeholder="Introduza o nome dos Portes para filtrar"
+            value={servicesSearch}
+            onChange={(e) => {
+              setServicesSearch(e.target.value);
+              setSelectedServiceId(""); // Clear selection when typing
+              setShowServicesDropdown(true);
+            }}
+            onFocus={() => setShowServicesDropdown(true)}
+            autoComplete="off"
+            required
+          />
+          {servicesSearch.length > 0 && (
+            <button
+              type="button"
+              className="btn position-absolute top-50 end-0 translate-middle-y me-2"
+              style={{ color: "red", fontSize: "1.2rem", padding: "0" }}
+              onClick={clearServices}
+              title="Limpar seleção"
+            >
+              &times;
+            </button>
+          )}
+          <div
+            className={`dropdown-menu ${showServicesDropdown ? "show" : ""}`}
+            style={{ maxHeight: "200px", overflowY: "auto", width: "100%" }}
+          >
+            {filteredServices.length > 0 ? (
+              filteredServices.map((service) => (
+                <button
+                  key={service.id}
+                  type="button"
+                  className="dropdown-item"
+                  onClick={() => handleServicesSelect(service)}
+                >
+                  {service.description}
+                </button>
+              ))
+            ) : (
+              <span className="dropdown-item text-muted">
+                Nenhum porte encontrado
+              </span>
+            )}
+          </div>
+        </div>
+        <input
+          type="hidden"
+          name="id_product_shipping"
+          value={selectedServiceId}
+          required
+        />
+      </div>
+
+      <div className="mb-3 form-check form-switch">
         <input
           type="checkbox"
           id="finalizeInvoice"
           name="finalizeInvoice"
           className="form-check-input"
           defaultChecked={finalized}
+          role="switch"
         />
-        <label htmlFor="finalizeInvoice" className="form-check-label">
-          Finaliza Fatura
+        <label htmlFor="finalizeInvoice" className="form-check-label fw-medium">
+          Finalizar Fatura
         </label>
       </div>
 
-      <div className="mb-3 form-check">
+      <div className="mb-3 form-check form-switch">
         <input
           type="checkbox"
           id="sendByEmail"
           name="sendByEmail"
           className="form-check-input"
           defaultChecked={email_auto}
+          role="switch"
         />
-        <label htmlFor="sendByEmail" className="form-check-label">
-          Envia por Email
+        <label htmlFor="sendByEmail" className="form-check-label fw-medium">
+          Enviar por Email
         </label>
       </div>
-
-      {(actionData?.error || error) && (
-        <div className="alert alert-danger">{actionData?.error || error}</div>
-      )}
 
       <button type="submit" className="btn btn-primary">
         Guardar Configuração

@@ -31,8 +31,8 @@ model GESlogin {
   token               String
   id_serie            String
   id_product_shipping String
-  finalized           Boolean @default(false)
-  email_auto          Boolean @default(false)
+  finalized           Boolean @default(true)
+  email_auto          Boolean @default(true)
   invoice_auto        Boolean @default(false)
   date_login          String
   date_expire         String

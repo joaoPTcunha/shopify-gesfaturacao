@@ -12,9 +12,6 @@ export async function loader({ request }) {
     const login = await prisma.GESlogin.findFirst({
       orderBy: { date_login: "desc" },
     });
-    if (!login || !login.token) {
-      return redirect("/ges-login");
-    }
 
     const expireDate = login.date_expire ? new Date(login.date_expire) : null;
     if (!expireDate || expireDate < new Date()) {
@@ -23,13 +20,15 @@ export async function loader({ request }) {
     }
 
     let seriesData = [];
+    let servicesData = [];
     try {
       let apiUrl = login.dom_licenca;
       if (!apiUrl.endsWith("/")) apiUrl += "/";
-      apiUrl += "series";
 
-      console.log("Fetching series from:", apiUrl);
-      const gesResponse = await fetch(apiUrl, {
+      // Fetch series
+      const seriesUrl = `${apiUrl}series`;
+      console.log("Fetching series from:", seriesUrl);
+      const seriesResponse = await fetch(seriesUrl, {
         method: "GET",
         headers: {
           Authorization: login.token,
@@ -37,20 +36,47 @@ export async function loader({ request }) {
         },
       });
 
-      if (!gesResponse.ok) {
-        throw new Error(`API request failed: ${await gesResponse.text()}`);
+      if (!seriesResponse.ok) {
+        throw new Error(
+          `Series API request failed: ${await seriesResponse.text()}`,
+        );
       }
 
-      const fullResponse = await gesResponse.json();
-      console.log("API Response:", JSON.stringify(fullResponse, null, 2));
-      seriesData = Array.isArray(fullResponse.data) ? fullResponse.data : [];
+      const seriesFullResponse = await seriesResponse.json();
+      seriesData = Array.isArray(seriesFullResponse.data)
+        ? seriesFullResponse.data
+        : [];
+
+      // Fetch services (portes)
+      const servicesUrl = `${apiUrl}products/type/service`;
+      console.log("Fetching services from:", servicesUrl);
+      const servicesResponse = await fetch(servicesUrl, {
+        method: "GET",
+        headers: {
+          Authorization: login.token,
+          Accept: "application/json",
+        },
+      });
+
+      if (!servicesResponse.ok) {
+        throw new Error(
+          `Services API request failed: ${await servicesResponse.text()}`,
+        );
+      }
+
+      const servicesFullResponse = await servicesResponse.json();
+      servicesData = Array.isArray(servicesFullResponse.data)
+        ? servicesFullResponse.data
+        : [];
     } catch (error) {
-      console.error("Erro ao buscar séries:", error.message);
+      console.error("Erro ao buscar séries ou serviços:", error.message);
     }
 
     return json({
       series: seriesData,
+      services: servicesData,
       currentSerieId: login.id_serie || "",
+      currentServiceId: login.id_product_shipping || "", // Use id_product_shipping
       finalized: login.finalized || false,
       email_auto: login.email_auto || false,
       error: null,
@@ -60,7 +86,9 @@ export async function loader({ request }) {
     return json(
       {
         series: [],
+        services: [],
         currentSerieId: "",
+        currentServiceId: "",
         finalized: false,
         email_auto: false,
         error: error.message,
@@ -78,11 +106,15 @@ export async function action({ request }) {
 
     const formData = await request.formData();
     const id_serie = formData.get("id_serie")?.trim();
+    const id_product_shipping = formData.get("id_product_shipping")?.trim();
     const finalized = formData.get("finalizeInvoice") === "on";
     const email_auto = formData.get("sendByEmail") === "on";
 
-    if (!id_serie) {
-      return json({ error: "Série é obrigatória" }, { status: 400 });
+    if (!id_serie || !id_product_shipping) {
+      return json(
+        { error: "Série e Portes são obrigatórios" },
+        { status: 400 },
+      );
     }
 
     const login = await prisma.GESlogin.findFirst({
@@ -100,7 +132,7 @@ export async function action({ request }) {
 
     await prisma.GESlogin.update({
       where: { id: login.id },
-      data: { id_serie, finalized, email_auto },
+      data: { id_serie, id_product_shipping, finalized, email_auto },
     });
 
     return redirect("/ges-orders");

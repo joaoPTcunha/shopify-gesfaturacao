@@ -1,43 +1,37 @@
-import { json, redirect } from "@remix-run/node";
+import { useLoaderData } from "@remix-run/react";
+import { redirect, json } from "@remix-run/node";
 import prisma from "../../prisma/client";
 import Layout from "../components/Layout";
 import LoginForm from "../components/LoginForm";
 
 export async function loader({ request }) {
   try {
-    if (!prisma.GESlogin) {
-      throw new Error("Prisma GESlogin model is not available.");
-    }
-
     const url = new URL(request.url);
+
     if (url.searchParams.get("logout") === "true") {
       await prisma.GESlogin.deleteMany({});
-      return json({});
+      return json({ isAuthenticated: false });
     }
 
     const login = await prisma.GESlogin.findFirst({
       orderBy: { date_login: "desc" },
     });
-    if (
-      login &&
-      login.date_expire &&
-      new Date(login.date_expire) > new Date()
-    ) {
-      return redirect("/ges-config");
-    }
-    return json({});
+
+    const isAuthenticated =
+      login && login.date_expire && new Date(login.date_expire) > new Date();
+
+    return json({ isAuthenticated });
   } catch (error) {
     console.error("Erro no loader:", error.message);
-    return json({ error: error.message }, { status: 500 });
+    return json(
+      { error: error.message, isAuthenticated: false },
+      { status: 500 },
+    );
   }
 }
 
 export async function action({ request }) {
   try {
-    if (!prisma.GESlogin) {
-      throw new Error("Prisma GESlogin model is not available.");
-    }
-
     const formData = await request.formData();
     let dom_licenca = formData.get("dom_licenca")?.trim();
     const username = formData.get("username")?.trim();
@@ -51,7 +45,6 @@ export async function action({ request }) {
     }
 
     new URL(dom_licenca);
-
     if (!dom_licenca.endsWith("/")) dom_licenca += "/";
 
     const res = await fetch(`${dom_licenca}login`, {
@@ -65,7 +58,6 @@ export async function action({ request }) {
 
     if (!res.ok) {
       const errorText = await res.text();
-      console.error("Erro na API:", { status: res.status, errorText });
       return json(
         { error: `Credenciais inválidas: ${errorText || res.statusText}` },
         { status: res.status },
@@ -78,14 +70,7 @@ export async function action({ request }) {
       return json({ error: "Token não retornado pela API." }, { status: 400 });
     }
 
-    // Delete existing sessions for the same dom_licenca and username
-    await prisma.GESlogin.deleteMany({
-      where: {
-        dom_licenca,
-      },
-    });
-
-    // Create new session
+    await prisma.GESlogin.deleteMany({ where: { dom_licenca } });
     await prisma.GESlogin.create({
       data: {
         dom_licenca,
@@ -102,6 +87,7 @@ export async function action({ request }) {
       },
     });
 
+    // Redireciona após login para /ges-config
     return redirect("/ges-config");
   } catch (error) {
     console.error("Erro ao ligar à API:", error.message);
@@ -113,6 +99,8 @@ export async function action({ request }) {
 }
 
 export default function GesLoginPage() {
+  const { isAuthenticated } = useLoaderData();
+
   return (
     <Layout>
       <div className="container d-flex justify-content-center align-items-center min-vh-100">
@@ -123,9 +111,24 @@ export default function GesLoginPage() {
                 Iniciar Sessão GESFaturacao
               </h1>
               <p className="text-muted mb-4">
-                Acesse a sua conta para gerir as suas faturas
+                Aceda à sua conta para gerir as suas faturas
               </p>
-              <LoginForm />
+
+              {isAuthenticated ? (
+                <div>
+                  <div className="alert alert-info mb-3">
+                    Já está autenticado.
+                  </div>
+                  <a
+                    href="/ges-login?logout=true"
+                    className="btn btn-outline-secondary w-100"
+                  >
+                    Terminar sessão
+                  </a>
+                </div>
+              ) : (
+                <LoginForm />
+              )}
             </div>
           </div>
         </div>

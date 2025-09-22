@@ -1,7 +1,11 @@
 // app/components/OrdersTable.jsx
 import { useLoaderData, useNavigate, useSearchParams } from "@remix-run/react";
 import { useState, useMemo } from "react";
-import Layout from "./Layout"; // Ajuste o caminho conforme sua estrutura
+import Layout from "./Layout";
+import {
+  fetchOrderFromShopify,
+  processClientFromOrder,
+} from "../services/clientService";
 
 export default function OrdersTable() {
   const { orders: allOrders, error } = useLoaderData();
@@ -9,12 +13,11 @@ export default function OrdersTable() {
   const navigate = useNavigate();
   const [showModal, setShowModal] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState(null);
-  const [searchTerm, setSearchTerm] = useState(""); // Barra de pesquisa
+  const [searchTerm, setSearchTerm] = useState("");
 
   const currentPage = parseInt(searchParams.get("page") || "1", 10);
   const pageSize = 10;
 
-  // Função para filtrar orders por searchTerm
   const filteredOrders = useMemo(() => {
     if (!searchTerm) return allOrders;
     const lowerTerm = searchTerm.toLowerCase();
@@ -30,9 +33,7 @@ export default function OrdersTable() {
         order.totalValue.toFixed(2).includes(lowerTerm) ||
         order.invoiceNumber.toLowerCase().includes(lowerTerm) ||
         order.shippingAddress?.city?.toLowerCase().includes(lowerTerm) ||
-        false ||
-        order.billingAddress?.city?.toLowerCase().includes(lowerTerm) ||
-        false
+        order.billingAddress?.city?.toLowerCase().includes(lowerTerm)
       );
     });
   }, [allOrders, searchTerm]);
@@ -45,13 +46,18 @@ export default function OrdersTable() {
   );
 
   const handleShowDetails = (order) => {
+    console.log(
+      "[handleShowDetails] Selected order:",
+      order.orderNumber,
+      order,
+    );
     setSelectedOrder(order);
     setShowModal(true);
   };
 
   const handleSendEmail = (orderId, orderNumber, customerEmail) => {
     console.log(
-      `Enviando email para o pedido ${orderNumber} (ID: ${orderId}, Email: ${customerEmail})`,
+      `[handleSendEmail] Sending email for order ${orderNumber} (ID: ${orderId}, Email: ${customerEmail})`,
     );
     alert(
       customerEmail !== "N/A"
@@ -60,11 +66,37 @@ export default function OrdersTable() {
     );
   };
 
-  const handleGenerateInvoice = (orderId, orderNumber) => {
-    console.log(`Gerando fatura para o pedido ${orderNumber} (ID: ${orderId})`);
-    alert(
-      `Fatura para o pedido ${orderNumber} será gerada (funcionalidade em desenvolvimento).`,
+  const handleGenerateInvoice = async (orderId, orderNumber) => {
+    console.log(
+      `[handleGenerateInvoice] Starting for order: ${orderNumber} (ID: ${orderId})`,
     );
+    try {
+      const fullOrder = await fetchOrderFromShopify(orderId);
+      console.log(
+        `[handleGenerateInvoice] Full order fetched:`,
+        JSON.stringify(fullOrder, null, 2),
+      );
+      const { clientId, created, customerData } =
+        await processClientFromOrder(fullOrder);
+      console.log(
+        `[handleGenerateInvoice] Client processed: ${clientId}, Created: ${created}`,
+      );
+      console.log(
+        `[handleGenerateInvoice] Customer data:`,
+        JSON.stringify(customerData, null, 2),
+      );
+      alert(
+        `Cliente do pedido ${orderNumber} foi processado com sucesso (ID: ${clientId})!`,
+      );
+    } catch (err) {
+      console.error(
+        `[handleGenerateInvoice] Error for order ${orderNumber}:`,
+        err,
+      );
+      alert(
+        `Erro ao processar cliente do pedido ${orderNumber}: ${err.message}`,
+      );
+    }
   };
 
   const translateStatus = (status) => {
@@ -77,7 +109,6 @@ export default function OrdersTable() {
     }
   };
 
-  // Gerar links de paginação
   const generatePagination = () => {
     const pages = [];
     const maxVisiblePages = 5;
@@ -134,17 +165,19 @@ export default function OrdersTable() {
     return pages;
   };
 
-  // Calcular total de itens e subtotal para o modal
   const calculateOrderSummary = (lineItems) => {
-    const totalItems = lineItems.reduce((sum, item) => sum + item.quantity, 0);
+    console.log("[calculateOrderSummary] Line items:", lineItems);
+    const totalItems = lineItems.reduce(
+      (sum, item) => sum + (item.quantity || 0),
+      0,
+    );
     const subtotal = lineItems.reduce(
-      (sum, item) => sum + item.quantity * item.unitPrice,
+      (sum, item) => sum + (item.quantity || 0) * (item.unitPrice || 0),
       0,
     );
     return { totalItems, subtotal };
   };
 
-  // Formatar endereço para exibição
   const formatAddress = (address) => {
     if (!address) return "N/A";
     const parts = [
@@ -169,7 +202,6 @@ export default function OrdersTable() {
 
         {error && <div className="alert alert-danger">{error}</div>}
 
-        {/* Barra de Pesquisa */}
         <div className="mb-4">
           <input
             type="text"
@@ -272,7 +304,6 @@ export default function OrdersTable() {
           </div>
         </div>
 
-        {/* Paginação */}
         {totalPages > 1 && (
           <nav aria-label="Paginação de pedidos">
             <ul className="pagination justify-content-center mt-4">
@@ -300,7 +331,6 @@ export default function OrdersTable() {
                   ></button>
                 </div>
                 <div className="modal-body">
-                  {/* Cliente */}
                   <div className="card mb-3 shadow-sm">
                     <div className="card-header bg-light">
                       <strong>Informações do Cliente</strong>
@@ -317,7 +347,6 @@ export default function OrdersTable() {
                     </div>
                   </div>
 
-                  {/* Pedido */}
                   <div className="card mb-3 shadow-sm">
                     <div className="card-header bg-light">
                       <strong>Informações do Pedido</strong>
@@ -372,7 +401,6 @@ export default function OrdersTable() {
                     </div>
                   </div>
 
-                  {/* Endereço e Envio */}
                   <div className="card mb-3 shadow-sm">
                     <div className="card-header bg-light">
                       <strong>Endereço & Envio</strong>
@@ -406,13 +434,13 @@ export default function OrdersTable() {
                       </div>
                     </div>
                   </div>
-                  {/* Itens */}
+
                   <div className="card mb-3 shadow-sm">
                     <div className="card-header bg-light">
                       <strong>Itens do Pedido</strong>
                     </div>
                     <div className="card-body table-responsive">
-                      {selectedOrder.lineItems.length > 0 ? (
+                      {selectedOrder.lineItems?.length > 0 ? (
                         <table className="table table-bordered table-sm">
                           <thead className="table-light">
                             <tr>
@@ -423,20 +451,25 @@ export default function OrdersTable() {
                             </tr>
                           </thead>
                           <tbody>
-                            {selectedOrder.lineItems.map((item, index) => (
-                              <tr key={index}>
-                                <td>{item.title}</td>
-                                <td>{item.quantity}</td>
-                                <td>
-                                  {item.unitPrice.toFixed(2)}{" "}
-                                  {selectedOrder.currency}
-                                </td>
-                                <td>
-                                  {(item.quantity * item.unitPrice).toFixed(2)}{" "}
-                                  {selectedOrder.currency}
-                                </td>
-                              </tr>
-                            ))}
+                            {selectedOrder.lineItems.map((item, index) => {
+                              console.log("[Modal] Rendering item:", item);
+                              const quantity = item.quantity || 0;
+                              const unitPrice = item.unitPrice || 0;
+                              return (
+                                <tr key={index}>
+                                  <td>{item.title || "N/A"}</td>
+                                  <td>{quantity}</td>
+                                  <td>
+                                    {unitPrice.toFixed(2)}{" "}
+                                    {selectedOrder.currency}
+                                  </td>
+                                  <td>
+                                    {(quantity * unitPrice).toFixed(2)}{" "}
+                                    {selectedOrder.currency}
+                                  </td>
+                                </tr>
+                              );
+                            })}
                           </tbody>
                         </table>
                       ) : (
@@ -445,7 +478,6 @@ export default function OrdersTable() {
                     </div>
                   </div>
                 </div>
-
                 <div className="modal-footer">
                   <button
                     type="button"
