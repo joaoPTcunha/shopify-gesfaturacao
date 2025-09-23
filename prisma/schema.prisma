@@ -48,36 +48,3 @@ model GESinvoices {
   invoice_date   DateTime?
   invoice_status Int
 }
-
-model SHOorder {
-  id            Int            @id @default(autoincrement())
-  orderNumber   String         @unique
-  customerName  String
-  email         String?
-  orderDate     String
-  totalValue    Float
-  status        String
-  invoiceNumber String?
-  items         SHOorderItem[] @relation("OrderItems")
-  customerId    Int?
-  customer      SHOcustomer?   @relation(fields: [customerId], references: [id])
-}
-
-model SHOorderItem {
-  id        Int      @id @default(autoincrement())
-  orderId   Int
-  order     SHOorder @relation("OrderItems", fields: [orderId], references: [id])
-  title     String
-  quantity  Int
-  unitPrice Float
-}
-
-model SHOcustomer {
-  id         Int        @id @default(autoincrement())
-  customerId String     @unique
-  firstName  String?
-  lastName   String?
-  email      String?
-  phone      String?
-  orders     SHOorder[] @relation
-}

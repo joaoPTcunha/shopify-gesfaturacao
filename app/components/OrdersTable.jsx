@@ -1,11 +1,6 @@
-// app/components/OrdersTable.jsx
-import { useLoaderData, useSearchParams } from "@remix-run/react";
-import { useState, useMemo } from "react";
+import { useLoaderData, useSearchParams, useFetcher } from "@remix-run/react";
+import { useState, useMemo, useEffect } from "react";
 import Layout from "./Layout";
-import {
-  fetchOrderFromShopify,
-  processClientFromOrder,
-} from "../services/clientService";
 
 export default function OrdersTable() {
   const { orders: allOrders, error } = useLoaderData();
@@ -13,6 +8,7 @@ export default function OrdersTable() {
   const [showModal, setShowModal] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
+  const fetcher = useFetcher();
 
   const currentPage = parseInt(searchParams.get("page") || "1", 10);
   const pageSize = 10;
@@ -56,20 +52,65 @@ export default function OrdersTable() {
     );
   };
 
-  const handleGenerateInvoice = async (orderId, orderNumber) => {
-    try {
-      const fullOrder = await fetchOrderFromShopify(orderId);
-      const { clientId, created } = await processClientFromOrder(fullOrder);
-      alert(
-        `Cliente do pedido ${orderNumber} foi processado com sucesso (ID: ${clientId})!`,
-      );
-    } catch (err) {
-      alert(
-        `Erro ao processar cliente do pedido ${orderNumber}: ${err.message}`,
-      );
+  const handleGenerateInvoice = (orderId, orderNumber) => {
+    const order = allOrders.find((o) => o.id === orderId);
+    if (!order) {
+      console.error(`[OrdersTable] Order not found for ID: ${orderId}`);
+      alert(`Erro: Pedido ${orderNumber} não encontrado`);
+      return;
     }
+
+    console.log(
+      `[OrdersTable] Tentativa de verificar cliente em GESfaturacao para o pedido ${orderNumber} (ID: ${orderId})`,
+    );
+    console.log(
+      `[OrdersTable] Order data to send:`,
+      JSON.stringify(order, null, 2),
+    );
+
+    const formData = new FormData();
+    formData.append("order", JSON.stringify(order));
+    console.log(`[OrdersTable] FormData order value:`, formData.get("order"));
+
+    fetcher.submit(formData, { method: "post", action: "/ges-orders" });
   };
 
+  useEffect(() => {
+    if (fetcher.state === "idle" && fetcher.data) {
+      const {
+        orderId = "unknown",
+        orderNumber = "unknown",
+        error,
+        clientId,
+        found,
+        status,
+      } = fetcher.data;
+      console.log(
+        `[OrdersTable] Fetcher data for order ${orderNumber} (ID: ${orderId}):`,
+        JSON.stringify(fetcher.data, null, 2),
+      );
+      if (error) {
+        console.error(
+          `[OrdersTable] Error checking/creating client for order ${orderNumber} (ID: ${orderId}):`,
+          error,
+        );
+        alert(
+          `Erro ao verificar/criar cliente do pedido ${orderNumber}: ${error}`,
+        );
+      } else {
+        console.log(
+          `[OrdersTable] Client check for order ${orderNumber} (ID: ${orderId}): ${found ? `${status === "created" ? "Created" : "Found"}, clientId=${clientId}` : "Not found"}`,
+        );
+        alert(
+          found
+            ? status === "created"
+              ? `Cliente do pedido ${orderNumber} criado com sucesso (ID: ${clientId})!`
+              : `Cliente do pedido ${orderNumber} encontrado com sucesso (ID: ${clientId})!`
+            : `Cliente do pedido ${orderNumber} não encontrado em GESfaturacao.`,
+        );
+      }
+    }
+  }, [fetcher.data, fetcher.state]);
   const translateStatus = (status) => (status === "PAID" ? "Pago" : status);
 
   const goToPage = (page) => {
@@ -245,14 +286,15 @@ export default function OrdersTable() {
                         )}
                         <button
                           className="btn btn-sm btn-outline-primary"
-                          title="Descarregar Fatura"
+                          title="Verificar Cliente"
                           onClick={() =>
                             handleGenerateInvoice(order.id, order.orderNumber)
                           }
+                          disabled={fetcher.state !== "idle"}
                         >
                           <img
                             src="/icons/invoice.png"
-                            alt="Descarregar Fatura"
+                            alt="Verificar Cliente"
                             style={{ width: "22px", height: "22px" }}
                           />
                         </button>
@@ -313,7 +355,7 @@ export default function OrdersTable() {
                       </p>
                       <p>
                         <strong>NIF / VAT:</strong>{" "}
-                        {selectedOrder.customerMetafields.find(
+                        {selectedOrder.customerMetafields?.find(
                           (m) => m.node.key === "vat_number",
                         )?.node.value || "N/A"}
                       </p>

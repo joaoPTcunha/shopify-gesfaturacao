@@ -1,7 +1,6 @@
-// app/routes/orders.jsx
-import pkg from "@remix-run/node";
-const { json } = pkg;
+import { json } from "@remix-run/node";
 import OrdersTable from "../components/OrdersTable";
+import { fetchClientDataFromOrder } from "../services/clientService";
 
 export async function loader() {
   try {
@@ -175,6 +174,74 @@ export async function loader() {
   } catch (error) {
     console.error("Erro ao buscar pedidos:", error);
     return json({ orders: [], error: error.message }, { status: 500 });
+  }
+}
+
+export async function action({ request }) {
+  let order = null;
+  try {
+    const formData = await request.formData();
+    const orderData = formData.get("order");
+    if (!orderData) {
+      throw new Error("No order data provided in FormData");
+    }
+    try {
+      order = JSON.parse(orderData);
+    } catch (parseError) {
+      throw new Error(`Failed to parse order data: ${parseError.message}`);
+    }
+    const orderId = order.id;
+    const orderNumber = order.orderNumber;
+
+    console.log(
+      `[ges-orders/action] Processing client check/creation for order ${orderNumber} (ID: ${orderId})`,
+    );
+    console.log(
+      `[ges-orders/action] Received order data:`,
+      JSON.stringify(order, null, 2),
+    );
+
+    const result = await fetchClientDataFromOrder(order);
+
+    console.log(
+      `[ges-orders/action] Result for order ${orderNumber}:`,
+      JSON.stringify(result, null, 2),
+    );
+
+    if (!result.clientId || !result.status) {
+      console.error(
+        `[ges-orders/action] Invalid result for order ${orderNumber}: missing clientId or status`,
+        JSON.stringify(result, null, 2),
+      );
+      throw new Error(
+        "Invalid response from fetchClientDataFromOrder: missing clientId or status",
+      );
+    }
+
+    return json({
+      orderId,
+      orderNumber,
+      clientId: result.clientId,
+      found: result.found,
+      status: result.status,
+      customerData: result.customerData,
+    });
+  } catch (error) {
+    console.error(
+      `[ges-orders/action] Error checking/creating client for order ${order?.orderNumber || "unknown"} (ID: ${order?.id || "unknown"}): ${error.message}`,
+    );
+    const status = error.message.includes("Client creation failed") ? 400 : 500;
+    return json(
+      {
+        error: `Failed to check/create client: ${error.message}`,
+        orderId: order?.id || "unknown",
+        orderNumber: order?.orderNumber || "unknown",
+        clientId: null,
+        found: false,
+        status: null,
+      },
+      { status },
+    );
   }
 }
 

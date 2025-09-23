@@ -1,4 +1,3 @@
-// app/root.jsx
 import {
   Links,
   Meta,
@@ -6,11 +5,13 @@ import {
   Scripts,
   ScrollRestoration,
   useLoaderData,
+  useRouteError,
 } from "@remix-run/react";
 import Navbar from "./components/Navbar";
 import "bootstrap/dist/css/bootstrap.min.css";
 import { json } from "@remix-run/node";
 import { prisma } from "./prisma/client.js";
+import { useEffect } from "react";
 
 export async function loader() {
   try {
@@ -25,7 +26,7 @@ export async function loader() {
       new Date(login.date_expire) > new Date();
     return json({ isAuthenticated });
   } catch (error) {
-    console.error("Erro no loader de root:", error.message);
+    console.error("[Root Loader] Error:", error.message);
     return json({ isAuthenticated: false });
   }
 }
@@ -64,7 +65,16 @@ export default function App() {
 
 export function ErrorBoundary() {
   const error = useRouteError();
-  const { isAuthenticated } = useLoaderData();
+
+  useEffect(() => {
+    console.error("[Root ErrorBoundary] Error occurred:", {
+      message: error?.message,
+      status: error?.status,
+      statusText: error?.statusText,
+      stack: error?.stack,
+      data: error?.data,
+    });
+  }, [error]);
 
   return (
     <html lang="pt-PT">
@@ -84,11 +94,24 @@ export function ErrorBoundary() {
         <Links />
       </head>
       <body>
-        <Navbar isAuthenticated={isAuthenticated} />
+        <Navbar isAuthenticated={false} />
         <div className="container mt-5 pt-5">
           <div className="alert alert-danger">
             <h1>Erro</h1>
-            <p>{error.message || "Algo correu mal"}</p>
+            <p>
+              {error?.message || "Algo correu mal. Tente novamente mais tarde."}
+            </p>
+            {error?.status && (
+              <p>
+                <strong>Status:</strong> {error.status}{" "}
+                {error.statusText && `(${error.statusText})`}
+              </p>
+            )}
+            {error?.data && (
+              <p>
+                <strong>Detalhes:</strong> {JSON.stringify(error.data)}
+              </p>
+            )}
           </div>
         </div>
         <ScrollRestoration />
