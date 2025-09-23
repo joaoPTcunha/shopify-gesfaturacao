@@ -1,6 +1,7 @@
 import { json } from "@remix-run/node";
 import OrdersTable from "../components/OrdersTable";
 import { fetchClientDataFromOrder } from "../services/clientService";
+import { fetchProductDataFromOrder } from "../services/productService";
 
 export async function loader() {
   try {
@@ -38,6 +39,9 @@ export async function loader() {
                   node {
                     title
                     quantity
+                    product {
+                      id
+                    }
                     originalUnitPriceSet {
                       shopMoney {
                         amount
@@ -134,6 +138,7 @@ export async function loader() {
         node.lineItems?.edges?.map(({ node: item }) => ({
           title: item.title || "N/A",
           quantity: item.quantity || 0,
+          productId: item.product?.id || "N/A",
           unitPrice: parseFloat(
             item.originalUnitPriceSet?.shopMoney?.amount || 0,
           ),
@@ -181,64 +186,103 @@ export async function action({ request }) {
   let order = null;
   try {
     const formData = await request.formData();
+    const actionType = formData.get("actionType") || "generateInvoice";
     const orderData = formData.get("order");
+
     if (!orderData) {
       throw new Error("No order data provided in FormData");
     }
+
     try {
       order = JSON.parse(orderData);
     } catch (parseError) {
       throw new Error(`Failed to parse order data: ${parseError.message}`);
     }
+
     const orderId = order.id;
     const orderNumber = order.orderNumber;
 
-    console.log(
-      `[ges-orders/action] Processing client check/creation for order ${orderNumber} (ID: ${orderId})`,
-    );
-    console.log(
-      `[ges-orders/action] Received order data:`,
-      JSON.stringify(order, null, 2),
-    );
-
-    const result = await fetchClientDataFromOrder(order);
-
-    console.log(
-      `[ges-orders/action] Result for order ${orderNumber}:`,
-      JSON.stringify(result, null, 2),
-    );
-
-    if (!result.clientId || !result.status) {
-      console.error(
-        `[ges-orders/action] Invalid result for order ${orderNumber}: missing clientId or status`,
-        JSON.stringify(result, null, 2),
+    if (actionType === "generateInvoice") {
+      console.log(
+        `[ges-orders/action] Processing invoice generation for order ${orderNumber} (ID: ${orderId})`,
       );
-      throw new Error(
-        "Invalid response from fetchClientDataFromOrder: missing clientId or status",
+      console.log(
+        `[ges-orders/action] Received order data:`,
+        JSON.stringify(order, null, 2),
       );
+
+      const clientResult = await fetchClientDataFromOrder(order);
+      console.log(
+        `[ges-orders/action] Client ${clientResult.status} for order ${orderNumber}: ID ${clientResult.clientId}`,
+      );
+      console.log(
+        `[ges-orders/action] Client result for order ${orderNumber}:`,
+        JSON.stringify(clientResult, null, 2),
+      );
+
+      if (!clientResult.clientId || !clientResult.status) {
+        console.error(
+          `[ges-orders/action] Invalid client result for order ${orderNumber}: missing clientId or status`,
+          JSON.stringify(clientResult, null, 2),
+        );
+        throw new Error(
+          "Invalid response from fetchClientDataFromOrder: missing clientId or status",
+        );
+      }
+
+      const productResults = [];
+      for (const lineItem of order.lineItems) {
+        const productResult = await fetchProductDataFromOrder(order, lineItem);
+        console.log(
+          `[ges-orders/action] Product result for ${lineItem.title}:`,
+          JSON.stringify(productResult, null, 2),
+        );
+        productResults.push({
+          title: lineItem.title,
+          productId: productResult.productId,
+          status: productResult.status,
+          found: productResult.found,
+        });
+      }
+
+      if (
+        productResults.some((result) => !result.productId || !result.status)
+      ) {
+        console.error(
+          `[ges-orders/action] Invalid product result for order ${orderNumber}:`,
+          JSON.stringify(productResults, null, 2),
+        );
+        throw new Error(
+          "Invalid response from fetchProductDataFromOrder: missing productId or status",
+        );
+      }
+
+      return json({
+        orderId,
+        orderNumber,
+        clientId: clientResult.clientId,
+        clientStatus: clientResult.status,
+        clientFound: clientResult.found,
+        customerData: clientResult.customerData,
+        products: productResults,
+      });
+    } else {
+      throw new Error(`Unknown action type: ${actionType}`);
     }
-
-    return json({
-      orderId,
-      orderNumber,
-      clientId: result.clientId,
-      found: result.found,
-      status: result.status,
-      customerData: result.customerData,
-    });
   } catch (error) {
     console.error(
-      `[ges-orders/action] Error checking/creating client for order ${order?.orderNumber || "unknown"} (ID: ${order?.id || "unknown"}): ${error.message}`,
+      `[ges-orders/action] Error processing order ${order?.orderNumber || "unknown"} (ID: ${order?.id || "unknown"}): ${error.message}`,
     );
-    const status = error.message.includes("Client creation failed") ? 400 : 500;
+    const status = error.message.includes("creation failed") ? 400 : 500;
     return json(
       {
-        error: `Failed to check/create client: ${error.message}`,
+        error: `Failed to process order: ${error.message}`,
         orderId: order?.id || "unknown",
         orderNumber: order?.orderNumber || "unknown",
         clientId: null,
-        found: false,
-        status: null,
+        clientFound: false,
+        clientStatus: null,
+        products: [],
       },
       { status },
     );

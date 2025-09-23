@@ -61,7 +61,7 @@ export default function OrdersTable() {
     }
 
     console.log(
-      `[OrdersTable] Tentativa de verificar cliente em GESfaturacao para o pedido ${orderNumber} (ID: ${orderId})`,
+      `[OrdersTable] Tentativa de gerar fatura para o pedido ${orderNumber} (ID: ${orderId})`,
     );
     console.log(
       `[OrdersTable] Order data to send:`,
@@ -69,6 +69,7 @@ export default function OrdersTable() {
     );
 
     const formData = new FormData();
+    formData.append("actionType", "generateInvoice");
     formData.append("order", JSON.stringify(order));
     console.log(`[OrdersTable] FormData order value:`, formData.get("order"));
 
@@ -82,8 +83,9 @@ export default function OrdersTable() {
         orderNumber = "unknown",
         error,
         clientId,
-        found,
-        status,
+        clientFound,
+        clientStatus,
+        products = [],
       } = fetcher.data;
       console.log(
         `[OrdersTable] Fetcher data for order ${orderNumber} (ID: ${orderId}):`,
@@ -91,26 +93,36 @@ export default function OrdersTable() {
       );
       if (error) {
         console.error(
-          `[OrdersTable] Error checking/creating client for order ${orderNumber} (ID: ${orderId}):`,
+          `[OrdersTable] Error processing order ${orderNumber} (ID: ${orderId}):`,
           error,
         );
-        alert(
-          `Erro ao verificar/criar cliente do pedido ${orderNumber}: ${error}`,
-        );
+        alert(`Erro ao gerar fatura para o pedido ${orderNumber}: ${error}`);
       } else {
         console.log(
-          `[OrdersTable] Client check for order ${orderNumber} (ID: ${orderId}): ${found ? `${status === "created" ? "Created" : "Found"}, clientId=${clientId}` : "Not found"}`,
+          `[OrdersTable] Invoice generation for order ${orderNumber} (ID: ${orderId}): Client ${clientFound ? `${clientStatus === "created" ? "Created" : "Found"}, clientId=${clientId}` : "Not found"}, Products:`,
+          JSON.stringify(products, null, 2),
         );
+        const clientMessage = clientFound
+          ? clientStatus === "created"
+            ? `GESCliente criado com sucesso (ID: ${clientId})`
+            : `GESCliente encontrado com sucesso (ID: ${clientId})`
+          : `GESCliente do pedido ${orderNumber} não encontrado em GESfaturacao`;
+        const productMessages = products
+          .map((product) =>
+            product.found
+              ? product.status === "created"
+                ? `Produto ${product.title} criado com sucesso (ID: ${product.productId})`
+                : `Produto ${product.title} encontrado com sucesso (ID: ${product.productId})`
+              : `Produto ${product.title} não encontrado em GESfaturacao`,
+          )
+          .join("\n");
         alert(
-          found
-            ? status === "created"
-              ? `Cliente do pedido ${orderNumber} criado com sucesso (ID: ${clientId})!`
-              : `Cliente do pedido ${orderNumber} encontrado com sucesso (ID: ${clientId})!`
-            : `Cliente do pedido ${orderNumber} não encontrado em GESfaturacao.`,
+          `Fatura para o pedido ${orderNumber}:\n${clientMessage}\n${productMessages || "Nenhum produto processado"}`,
         );
       }
     }
   }, [fetcher.data, fetcher.state]);
+
   const translateStatus = (status) => (status === "PAID" ? "Pago" : status);
 
   const goToPage = (page) => {
@@ -286,7 +298,7 @@ export default function OrdersTable() {
                         )}
                         <button
                           className="btn btn-sm btn-outline-primary"
-                          title="Verificar Cliente"
+                          title="Gerar Fatura"
                           onClick={() =>
                             handleGenerateInvoice(order.id, order.orderNumber)
                           }
@@ -294,7 +306,7 @@ export default function OrdersTable() {
                         >
                           <img
                             src="/icons/invoice.png"
-                            alt="Verificar Cliente"
+                            alt="Gerar Fatura"
                             style={{ width: "22px", height: "22px" }}
                           />
                         </button>
