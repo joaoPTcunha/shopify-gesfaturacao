@@ -25,6 +25,14 @@ export async function loader() {
                 firstName
                 lastName
                 email
+                metafields(first: 5, namespace: "custom") {
+                  edges {
+                    node {
+                      key
+                      value
+                    }
+                  }
+                }
               }
               lineItems(first: 5) {
                 edges {
@@ -118,6 +126,7 @@ export async function loader() {
         `${node.customer?.firstName || ""} ${node.customer?.lastName || ""}`.trim() ||
         "N/A",
       customerEmail: node.customer?.email || "N/A",
+      customerMetafields: node.customer?.metafields?.edges || [],
       invoiceNumber:
         node.metafields?.edges?.find(
           (edge) => edge.node.key === "invoice_number",

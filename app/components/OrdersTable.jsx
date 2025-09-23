@@ -1,5 +1,5 @@
 // app/components/OrdersTable.jsx
-import { useLoaderData, useNavigate, useSearchParams } from "@remix-run/react";
+import { useLoaderData, useSearchParams } from "@remix-run/react";
 import { useState, useMemo } from "react";
 import Layout from "./Layout";
 import {
@@ -10,7 +10,6 @@ import {
 export default function OrdersTable() {
   const { orders: allOrders, error } = useLoaderData();
   const [searchParams, setSearchParams] = useSearchParams();
-  const navigate = useNavigate();
   const [showModal, setShowModal] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
@@ -25,7 +24,6 @@ export default function OrdersTable() {
       return (
         order.orderNumber.toLowerCase().includes(lowerTerm) ||
         order.customerName.toLowerCase().includes(lowerTerm) ||
-        order.customerEmail.toLowerCase().includes(lowerTerm) ||
         new Date(order.orderDate)
           .toLocaleString("pt-PT")
           .toLowerCase()
@@ -46,62 +44,33 @@ export default function OrdersTable() {
   );
 
   const handleShowDetails = (order) => {
-    console.log(
-      "[handleShowDetails] Selected order:",
-      order.orderNumber,
-      order,
-    );
     setSelectedOrder(order);
     setShowModal(true);
   };
 
   const handleSendEmail = (orderId, orderNumber, customerEmail) => {
-    console.log(
-      `[handleSendEmail] Sending email for order ${orderNumber} (ID: ${orderId}, Email: ${customerEmail})`,
-    );
     alert(
       customerEmail !== "N/A"
         ? `Email para o pedido ${orderNumber} será enviado para ${customerEmail} (funcionalidade em desenvolvimento).`
-        : `Email para o pedido ${orderNumber} não pode ser enviado (email do cliente não disponível no plano Basic).`,
+        : `Email para o pedido ${orderNumber} não pode ser enviado (email do cliente não disponível).`,
     );
   };
 
   const handleGenerateInvoice = async (orderId, orderNumber) => {
-    console.log(
-      `[handleGenerateInvoice] Starting for order: ${orderNumber} (ID: ${orderId})`,
-    );
     try {
       const fullOrder = await fetchOrderFromShopify(orderId);
-      console.log(
-        `[handleGenerateInvoice] Full order fetched:`,
-        JSON.stringify(fullOrder, null, 2),
-      );
-      const { clientId, created, customerData } =
-        await processClientFromOrder(fullOrder);
-      console.log(
-        `[handleGenerateInvoice] Client processed: ${clientId}, Created: ${created}`,
-      );
-      console.log(
-        `[handleGenerateInvoice] Customer data:`,
-        JSON.stringify(customerData, null, 2),
-      );
+      const { clientId, created } = await processClientFromOrder(fullOrder);
       alert(
         `Cliente do pedido ${orderNumber} foi processado com sucesso (ID: ${clientId})!`,
       );
     } catch (err) {
-      console.error(
-        `[handleGenerateInvoice] Error for order ${orderNumber}:`,
-        err,
-      );
       alert(
         `Erro ao processar cliente do pedido ${orderNumber}: ${err.message}`,
       );
     }
   };
 
-  const translateStatus = (status) => {
-    return status === "PAID" ? "Pago" : status;
-  };
+  const translateStatus = (status) => (status === "PAID" ? "Pago" : status);
 
   const goToPage = (page) => {
     if (page >= 1 && page <= totalPages) {
@@ -114,7 +83,6 @@ export default function OrdersTable() {
     const maxVisiblePages = 5;
     let startPage = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
     let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
-
     if (endPage - startPage + 1 < maxVisiblePages) {
       startPage = Math.max(1, endPage - maxVisiblePages + 1);
     }
@@ -166,7 +134,6 @@ export default function OrdersTable() {
   };
 
   const calculateOrderSummary = (lineItems) => {
-    console.log("[calculateOrderSummary] Line items:", lineItems);
     const totalItems = lineItems.reduce(
       (sum, item) => sum + (item.quantity || 0),
       0,
@@ -206,7 +173,7 @@ export default function OrdersTable() {
           <input
             type="text"
             className="form-control"
-            placeholder="Pesquisar por N.º Encomenda, Cliente, Email, Data, Valor com IVA, N.º Fatura ou Cidade..."
+            placeholder="Pesquisar por N.º Encomenda, Cliente, Data, Valor com IVA, N.º Fatura ou Cidade..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
@@ -219,7 +186,6 @@ export default function OrdersTable() {
                 <tr>
                   <th>N.º Encomenda</th>
                   <th>Cliente</th>
-                  <th>Email</th>
                   <th>Data</th>
                   <th>Valor com IVA</th>
                   <th>Estado</th>
@@ -240,13 +206,12 @@ export default function OrdersTable() {
                           </span>
                         )}
                       </td>
-                      <td>{order.customerEmail}</td>
                       <td>
                         {new Date(order.orderDate).toLocaleString("pt-PT")}
                       </td>
                       <td>{order.totalValue.toFixed(2)}</td>
                       <td>{translateStatus(order.status)}</td>
-                      <td>{order.invoiceNumber}</td>
+                      <td>{order.invoiceNumber || "N/A"}</td>
                       <td>
                         <button
                           className="btn btn-sm btn-outline-info me-2"
@@ -259,23 +224,25 @@ export default function OrdersTable() {
                             style={{ width: "22px", height: "22px" }}
                           />
                         </button>
-                        <button
-                          className="btn btn-sm btn-outline-secondary me-2"
-                          title="Enviar Email"
-                          onClick={() =>
-                            handleSendEmail(
-                              order.id,
-                              order.orderNumber,
-                              order.customerEmail,
-                            )
-                          }
-                        >
-                          <img
-                            src="/icons/mail.png"
-                            alt="Enviar Email"
-                            style={{ width: "22px", height: "22px" }}
-                          />
-                        </button>
+                        {order.invoiceNumber && (
+                          <button
+                            className="btn btn-sm btn-outline-secondary me-2"
+                            title="Enviar Email"
+                            onClick={() =>
+                              handleSendEmail(
+                                order.id,
+                                order.orderNumber,
+                                order.customerEmail,
+                              )
+                            }
+                          >
+                            <img
+                              src="/icons/mail.png"
+                              alt="Enviar Email"
+                              style={{ width: "22px", height: "22px" }}
+                            />
+                          </button>
+                        )}
                         <button
                           className="btn btn-sm btn-outline-primary"
                           title="Descarregar Fatura"
@@ -294,7 +261,7 @@ export default function OrdersTable() {
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={8} className="text-center">
+                    <td colSpan={7} className="text-center">
                       Nenhuma ordem paga encontrada.
                     </td>
                   </tr>
@@ -344,6 +311,12 @@ export default function OrdersTable() {
                         <strong>Email:</strong>{" "}
                         {selectedOrder.customerEmail || "N/A"}
                       </p>
+                      <p>
+                        <strong>NIF / VAT:</strong>{" "}
+                        {selectedOrder.customerMetafields.find(
+                          (m) => m.node.key === "vat_number",
+                        )?.node.value || "N/A"}
+                      </p>
                     </div>
                   </div>
 
@@ -376,7 +349,7 @@ export default function OrdersTable() {
                       <div className="col-md-6 mb-2">
                         <p>
                           <strong>N.º Fatura:</strong>{" "}
-                          {selectedOrder.invoiceNumber}
+                          {selectedOrder.invoiceNumber || "N/A"}
                         </p>
                         <p>
                           <strong>Total de Itens:</strong>{" "}
@@ -452,7 +425,6 @@ export default function OrdersTable() {
                           </thead>
                           <tbody>
                             {selectedOrder.lineItems.map((item, index) => {
-                              console.log("[Modal] Rendering item:", item);
                               const quantity = item.quantity || 0;
                               const unitPrice = item.unitPrice || 0;
                               return (
