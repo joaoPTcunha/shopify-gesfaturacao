@@ -2,7 +2,6 @@ import { json } from "@remix-run/node";
 import OrdersTable from "../components/OrdersTable";
 import { fetchClientDataFromOrder } from "../services/clientService";
 import { fetchProductDataFromOrder } from "../services/productService";
-import { generateInvoice } from "../services/receipt-invoice";
 
 export async function loader() {
   try {
@@ -185,8 +184,6 @@ export async function loader() {
 
 export async function action({ request }) {
   let order = null;
-  let clientResult = null;
-  let productResults = [];
   try {
     const formData = await request.formData();
     const actionType = formData.get("actionType") || "generateInvoice";
@@ -214,7 +211,7 @@ export async function action({ request }) {
         JSON.stringify(order, null, 2),
       );
 
-      clientResult = await fetchClientDataFromOrder(order);
+      const clientResult = await fetchClientDataFromOrder(order);
       console.log(
         `[ges-orders/action] Client ${clientResult.status} for order ${orderNumber}: ID ${clientResult.clientId}`,
       );
@@ -233,7 +230,7 @@ export async function action({ request }) {
         );
       }
 
-      productResults = [];
+      const productResults = [];
       for (const lineItem of order.lineItems) {
         const productResult = await fetchProductDataFromOrder(order, lineItem);
         console.log(
@@ -260,9 +257,15 @@ export async function action({ request }) {
         );
       }
 
-      const invoiceResult = await generateInvoice(order);
-
-      return json(invoiceResult);
+      return json({
+        orderId,
+        orderNumber,
+        clientId: clientResult.clientId,
+        clientStatus: clientResult.status,
+        clientFound: clientResult.found,
+        customerData: clientResult.customerData,
+        products: productResults,
+      });
     } else {
       throw new Error(`Unknown action type: ${actionType}`);
     }
@@ -270,24 +273,16 @@ export async function action({ request }) {
     console.error(
       `[ges-orders/action] Error processing order ${order?.orderNumber || "unknown"} (ID: ${order?.id || "unknown"}): ${error.message}`,
     );
-    console.log(
-      `[ges-orders/action] Client result during error:`,
-      JSON.stringify(clientResult, null, 2),
-    );
-    console.log(
-      `[ges-orders/action] Product results during error:`,
-      JSON.stringify(productResults, null, 2),
-    );
     const status = error.message.includes("creation failed") ? 400 : 500;
     return json(
       {
         error: `Failed to process order: ${error.message}`,
         orderId: order?.id || "unknown",
         orderNumber: order?.orderNumber || "unknown",
-        clientId: clientResult?.clientId || null,
-        clientFound: clientResult?.found || false,
-        clientStatus: clientResult?.status || null,
-        products: productResults || [],
+        clientId: null,
+        clientFound: false,
+        clientStatus: null,
+        products: [],
       },
       { status },
     );

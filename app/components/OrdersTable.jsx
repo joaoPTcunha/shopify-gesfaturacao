@@ -55,23 +55,17 @@ export default function OrdersTable() {
   const handleGenerateInvoice = (orderId, orderNumber) => {
     const order = allOrders.find((o) => o.id === orderId);
     if (!order) {
-      console.error(`[OrdersTable] Order not found for ID: ${orderId}`);
       alert(`Erro: Pedido ${orderNumber} não encontrado`);
       return;
     }
-
-    console.log(
-      `[OrdersTable] Tentativa de gerar fatura para o pedido ${orderNumber} (ID: ${orderId})`,
-    );
-    console.log(
-      `[OrdersTable] Order data to send:`,
-      JSON.stringify(order, null, 2),
-    );
-
     const formData = new FormData();
     formData.append("actionType", "generateInvoice");
     formData.append("order", JSON.stringify(order));
-    console.log(`[OrdersTable] FormData order value:`, formData.get("order"));
+
+    console.log(
+      `[OrdersTable] Submitting invoice generation for order ${orderNumber} (ID: ${orderId})`,
+      JSON.stringify(order, null, 2),
+    );
 
     fetcher.submit(formData, { method: "post", action: "/ges-orders" });
   };
@@ -79,18 +73,22 @@ export default function OrdersTable() {
   useEffect(() => {
     if (fetcher.state === "idle" && fetcher.data) {
       const {
-        orderId = "unknown",
-        orderNumber = "unknown",
+        orderId,
+        orderNumber,
         error,
         clientId,
         clientFound,
         clientStatus,
         products = [],
+        invoice,
+        invoiceFile,
       } = fetcher.data;
+
       console.log(
         `[OrdersTable] Fetcher data for order ${orderNumber} (ID: ${orderId}):`,
         JSON.stringify(fetcher.data, null, 2),
       );
+
       if (error) {
         console.error(
           `[OrdersTable] Error processing order ${orderNumber} (ID: ${orderId}):`,
@@ -99,26 +97,46 @@ export default function OrdersTable() {
         alert(`Erro ao gerar fatura para o pedido ${orderNumber}: ${error}`);
       } else {
         console.log(
-          `[OrdersTable] Invoice generation for order ${orderNumber} (ID: ${orderId}): Client ${clientFound ? `${clientStatus === "created" ? "Created" : "Found"}, clientId=${clientId}` : "Not found"}, Products:`,
+          `[OrdersTable] Invoice generation for order ${orderNumber} (ID: ${orderId}): Client ${
+            clientFound
+              ? `${clientStatus === "created" ? "Created" : "Found"}, clientId=${clientId}`
+              : "Not found"
+          }, Products:`,
           JSON.stringify(products, null, 2),
+        );
+        console.log(
+          `[OrdersTable] Invoice result for order ${orderNumber}:`,
+          JSON.stringify(invoice, null, 2),
         );
         const clientMessage = clientFound
           ? clientStatus === "created"
-            ? `GESCliente criado com sucesso (ID: ${clientId})`
-            : `GESCliente encontrado com sucesso (ID: ${clientId})`
-          : `GESCliente do pedido ${orderNumber} não encontrado em GESfaturacao`;
+            ? `Cliente criado (ID: ${clientId})`
+            : `Cliente encontrado (ID: ${clientId})`
+          : `Cliente não encontrado`;
         const productMessages = products
           .map((product) =>
             product.found
               ? product.status === "created"
-                ? `Produto ${product.title} criado com sucesso (ID: ${product.productId})`
-                : `Produto ${product.title} encontrado com sucesso (ID: ${product.productId})`
-              : `Produto ${product.title} não encontrado em GESfaturacao`,
+                ? `Produto ${product.title} criado (ID: ${product.productId})`
+                : `Produto ${product.title} encontrado (ID: ${product.productId})`
+              : `Produto ${product.title} não encontrado`,
           )
           .join("\n");
         alert(
-          `Fatura para o pedido ${orderNumber}:\n${clientMessage}\n${productMessages || "Nenhum produto processado"}`,
+          `Fatura gerada para o pedido ${orderNumber}:\n${clientMessage}\n${productMessages || "Nenhum produto processado"}`,
         );
+
+        // Handle invoice file download
+        if (invoiceFile) {
+          const { contentType, data, filename } = invoiceFile;
+          const link = document.createElement("a");
+          link.href = `data:${contentType};base64,${data}`;
+          link.download = filename;
+          link.click();
+          console.log(
+            `[OrdersTable] Initiated download for invoice ${filename} of order ${orderNumber}`,
+          );
+        }
       }
     }
   }, [fetcher.data, fetcher.state]);
