@@ -8,7 +8,6 @@ export async function generateInvoice(order) {
   );
   console.log("[generateInvoice] Order data:", JSON.stringify(order, null, 2));
 
-  // Validate order data
   if (!order.id || !order.orderNumber) {
     throw new Error("Missing orderId or orderNumber");
   }
@@ -20,7 +19,6 @@ export async function generateInvoice(order) {
     throw new Error("No valid line items provided in order data");
   }
 
-  // Fetch GES login data
   console.log("[generateInvoice] GES_LICENSE:", process.env.GES_LICENSE);
   const login = await prisma.gESlogin.findFirst({
     where: { dom_licenca: process.env.GES_LICENSE },
@@ -42,11 +40,6 @@ export async function generateInvoice(order) {
   let apiUrl = login.dom_licenca;
   if (!apiUrl.endsWith("/")) apiUrl += "/";
 
-  console.log("[generateInvoice] API URL:", apiUrl);
-  console.log("[generateInvoice] Serie:", login.id_serie);
-  console.log("[generateInvoice] Finalized:", login.finalized);
-
-  // Fetch client data
   const clientResult = await fetchClientDataFromOrder(order);
   console.log(
     "[generateInvoice] Client result:",
@@ -58,7 +51,6 @@ export async function generateInvoice(order) {
     );
   }
 
-  // Fetch available tax IDs for debugging
   let availableTaxes = [];
   try {
     const taxesResponse = await fetch(`${apiUrl}taxes`, {
@@ -81,15 +73,13 @@ export async function generateInvoice(order) {
     );
   }
 
-  // Tax map for reference
   const taxMap = {
-    23.0: 1, // Normal (PT)
-    13.0: 2, // Intermédia (PT)
-    6.0: 3, // Reduzida (PT)
-    0.0: 4, // Isento (PT)
+    23: 1,
+    13: 2,
+    6: 3,
+    0: 4,
   };
 
-  // Fetch product data and build lines
   const lines = [];
   const productResults = [];
   for (const [index, item] of order.lineItems.entries()) {
@@ -110,7 +100,6 @@ export async function generateInvoice(order) {
       );
     }
 
-    // Default tax ID to 1 (23% VAT)
     const productTaxId = 1;
     const orderCountry = order.shippingAddress?.country || "Portugal";
     const taxRate = orderCountry === "Portugal" ? 23.0 : 0.0;
@@ -119,14 +108,14 @@ export async function generateInvoice(order) {
     );
 
     lines.push({
-      id: parseInt(productResult.productId, 10), // Use GES product ID
-      tax: productTaxId, // Default to 1
+      id: parseInt(productResult.productId),
+      tax: productTaxId,
       quantity: item.quantity,
-      price: item.unitPrice, // Use full price including VAT
+      price: item.unitPrice,
       description: item.title,
       discount: 0,
       retention: 0,
-      exemption_reason: productTaxId === 4 ? "M01" : "", // Add for tax: 4
+      exemption_reason: productTaxId === 4 ? "M01" : "",
     });
 
     productResults.push({
@@ -137,11 +126,10 @@ export async function generateInvoice(order) {
     });
   }
 
-  // Calculate dates
-  const date = new Date().toISOString().split("T")[0]; // e.g., 2025-09-24
+  const date = new Date().toISOString().split("T")[0];
   const expirationDate = new Date();
   expirationDate.setMonth(expirationDate.getMonth() + 1);
-  const expiration = expirationDate.toISOString().split("T")[0]; // e.g., 2025-10-24
+  const expiration = expirationDate.toISOString().split("T")[0];
 
   // Build payload
   const payload = {
@@ -152,7 +140,7 @@ export async function generateInvoice(order) {
     coin: 1,
     payment: 1,
     needsBank: false,
-    bank: "", // Empty as per API requirement when needsBank is false
+    bank: "",
     lines,
     finalize: login.finalized ?? true,
     reference: order.orderNumber,
@@ -164,11 +152,10 @@ export async function generateInvoice(order) {
     JSON.stringify(payload, null, 2),
   );
 
-  // POST request to create invoice
-  const endpoint = `${apiUrl}sales/receipt-invoices`;
+  const CreateRIendpoint = `${apiUrl}sales/receipt-invoices`;
   let response;
   try {
-    response = await fetch(endpoint, {
+    response = await fetch(CreateRIendpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -216,9 +203,37 @@ export async function generateInvoice(order) {
     JSON.stringify(result, null, 2),
   );
 
+  const invoiceId = result.data?.id || result.id;
+  const invoiceNumber = result.data?.document_number || "N/A";
+  const invoiceTotal = result.data?.total || order.totalValue.toFixed(2);
+  const invoiceDate = result.data?.date
+    ? new Date(result.data.date)
+    : new Date();
+
+  try {
+    await prisma.gESinvoices.create({
+      data: {
+        order_id: order.id.toString(),
+        order_total: order.totalValue.toFixed(2),
+        invoice_id: invoiceId.toString(),
+        invoice_number: invoiceNumber,
+        invoice_total: invoiceTotal.toString(),
+        invoice_date: invoiceDate,
+        invoice_status: login.finalized ? 1 : 0,
+      },
+    });
+    console.log(
+      `[generateInvoice] Saved invoice ${invoiceNumber} to GESinvoices for order ${order.orderNumber}`,
+    );
+  } catch (err) {
+    console.error(
+      `[generateInvoice] Failed to save invoice to GESinvoices: ${err.message}`,
+    );
+    throw new Error(`Failed to save invoice to database: ${err.message}`);
+  }
+
   // Fetch PDF
   let invoiceFile = null;
-  const invoiceId = result.data?.id || result.id;
   if (invoiceId) {
     const downloadEndpoint = `${apiUrl}sales/documents/${invoiceId}/type/FR`;
     console.log(`[generateInvoice] Fetching PDF from: ${downloadEndpoint}`);
@@ -233,9 +248,6 @@ export async function generateInvoice(order) {
       });
 
       const downloadResponseText = await downloadResponse.text();
-      console.log(
-        `[generateInvoice] Raw PDF response: ${downloadResponseText} (Status: ${downloadResponse.status})`,
-      );
 
       if (!downloadResponse.ok) {
         console.warn(
@@ -268,9 +280,6 @@ export async function generateInvoice(order) {
 
       const pdfContent = Buffer.from(pdfBase64, "base64");
       const contentLength = pdfContent.length;
-      console.log(
-        `[generateInvoice] PDF decoded, size: ${contentLength} bytes`,
-      );
 
       // Validate PDF content
       const pdfHeader = pdfContent.toString("ascii", 0, 4);
@@ -287,13 +296,7 @@ export async function generateInvoice(order) {
         filename: `invoice_${order.orderNumber}.pdf`,
         size: contentLength,
       };
-      console.log(
-        `[generateInvoice] PDF prepared for order ${order.orderNumber}: ${invoiceFile.filename}, ${contentLength} bytes`,
-      );
     } catch (err) {
-      console.error(
-        `[generateInvoice] Error downloading invoice PDF: ${err.message}`,
-      );
       throw new Error(`Error downloading invoice PDF: ${err.message}`);
     }
   } else {
@@ -311,5 +314,6 @@ export async function generateInvoice(order) {
     products: productResults,
     invoice: result,
     invoiceFile,
+    invoiceNumber,
   };
 }

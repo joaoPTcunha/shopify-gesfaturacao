@@ -3,20 +3,26 @@ import { useState, useMemo, useEffect } from "react";
 import Layout from "./Layout";
 
 export default function OrdersTable() {
-  const { orders: allOrders, error } = useLoaderData();
+  const { orders: initialOrders, error } = useLoaderData();
+  const [orders, setOrders] = useState(initialOrders);
   const [searchParams, setSearchParams] = useSearchParams();
   const [showModal, setShowModal] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
+  const [isClient, setIsClient] = useState(false);
   const fetcher = useFetcher();
+
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
 
   const currentPage = parseInt(searchParams.get("page") || "1", 10);
   const pageSize = 10;
 
   const filteredOrders = useMemo(() => {
-    if (!searchTerm) return allOrders;
+    if (!searchTerm) return orders;
     const lowerTerm = searchTerm.toLowerCase();
-    return allOrders.filter((order) => {
+    return orders.filter((order) => {
       return (
         order.orderNumber.toLowerCase().includes(lowerTerm) ||
         order.customerName.toLowerCase().includes(lowerTerm) ||
@@ -25,12 +31,12 @@ export default function OrdersTable() {
           .toLowerCase()
           .includes(lowerTerm) ||
         order.totalValue.toFixed(2).includes(lowerTerm) ||
-        order.invoiceNumber.toLowerCase().includes(lowerTerm) ||
+        (order.invoiceNumber || "").toLowerCase().includes(lowerTerm) ||
         order.shippingAddress?.city?.toLowerCase().includes(lowerTerm) ||
         order.billingAddress?.city?.toLowerCase().includes(lowerTerm)
       );
     });
-  }, [allOrders, searchTerm]);
+  }, [orders, searchTerm]);
 
   const totalPages = Math.ceil(filteredOrders.length / pageSize);
 
@@ -45,19 +51,24 @@ export default function OrdersTable() {
   };
 
   const handleSendEmail = (orderId, orderNumber, customerEmail) => {
-    alert(
-      customerEmail !== "N/A"
-        ? `Email para o pedido ${orderNumber} será enviado para ${customerEmail} (funcionalidade em desenvolvimento).`
-        : `Email para o pedido ${orderNumber} não pode ser enviado (email do cliente não disponível).`,
-    );
+    if (!isClient) return;
+    if (customerEmail !== "N/A") {
+      console.log(
+        `Enviando email para o pedido ${orderNumber}... (em desenvolvimento)`,
+      );
+    } else {
+      console.log(`Email não disponível para o pedido ${orderNumber}.`);
+    }
   };
 
   const handleGenerateInvoice = (orderId, orderNumber) => {
-    const order = allOrders.find((o) => o.id === orderId);
+    if (!isClient) return;
+    const order = orders.find((o) => o.id === orderId);
     if (!order) {
-      alert(`Erro: Pedido ${orderNumber} não encontrado`);
+      console.error(`Erro: Pedido ${orderNumber} não encontrado`);
       return;
     }
+    console.log(`Gerando fatura para o pedido ${orderNumber}...`);
     const formData = new FormData();
     formData.append("actionType", "generateInvoice");
     formData.append("order", JSON.stringify(order));
@@ -72,74 +83,78 @@ export default function OrdersTable() {
 
   useEffect(() => {
     if (fetcher.state === "idle" && fetcher.data) {
-      const {
-        orderId,
-        orderNumber,
-        error,
-        clientId,
-        clientFound,
-        clientStatus,
-        products = [],
-        invoice,
-        invoiceFile,
-      } = fetcher.data;
-
-      console.log(
-        `[OrdersTable] Fetcher data for order ${orderNumber} (ID: ${orderId}):`,
-        JSON.stringify(fetcher.data, null, 2),
-      );
+      const { orderId, orderNumber, error, invoiceFile, invoiceNumber } =
+        fetcher.data;
 
       if (error) {
         console.error(
           `[OrdersTable] Error processing order ${orderNumber} (ID: ${orderId}):`,
           error,
         );
-        alert(`Erro ao gerar fatura para o pedido ${orderNumber}: ${error}`);
-      } else {
+        if (isClient) {
+          console.error(
+            `Erro ao gerar fatura para o pedido ${orderNumber}: ${error}`,
+          );
+        }
+        return;
+      }
+
+      // Update the order's invoiceNumber in local state
+      setOrders((prevOrders) =>
+        prevOrders.map((order) =>
+          order.id === orderId ? { ...order, invoiceNumber } : order,
+        ),
+      );
+
+      if (isClient) {
         console.log(
-          `[OrdersTable] Invoice generation for order ${orderNumber} (ID: ${orderId}): Client ${
-            clientFound
-              ? `${clientStatus === "created" ? "Created" : "Found"}, clientId=${clientId}`
-              : "Not found"
-          }, Products:`,
-          JSON.stringify(products, null, 2),
-        );
-        console.log(
-          `[OrdersTable] Invoice result for order ${orderNumber}:`,
-          JSON.stringify(invoice, null, 2),
-        );
-        const clientMessage = clientFound
-          ? clientStatus === "created"
-            ? `Cliente criado (ID: ${clientId})`
-            : `Cliente encontrado (ID: ${clientId})`
-          : `Cliente não encontrado`;
-        const productMessages = products
-          .map((product) =>
-            product.found
-              ? product.status === "created"
-                ? `Produto ${product.title} criado (ID: ${product.productId})`
-                : `Produto ${product.title} encontrado (ID: ${product.productId})`
-              : `Produto ${product.title} não encontrado`,
-          )
-          .join("\n");
-        alert(
-          `Fatura gerada para o pedido ${orderNumber}:\n${clientMessage}\n${productMessages || "Nenhum produto processado"}`,
+          `Fatura ${invoiceNumber} gerada com sucesso para o pedido ${orderNumber}!`,
         );
 
-        // Handle invoice file download
         if (invoiceFile) {
-          const { contentType, data, filename } = invoiceFile;
-          const link = document.createElement("a");
-          link.href = `data:${contentType};base64,${data}`;
-          link.download = filename;
-          link.click();
-          console.log(
-            `[OrdersTable] Initiated download for invoice ${filename} of order ${orderNumber}`,
+          try {
+            const { contentType, data, filename } = invoiceFile;
+            if (!data || typeof data !== "string") {
+              throw new Error("Invalid or missing Base64 data in invoiceFile");
+            }
+
+            // Create Blob from Base64
+            const byteCharacters = atob(data);
+            const byteNumbers = new Array(byteCharacters.length);
+            for (let i = 0; i < byteCharacters.length; i++) {
+              byteNumbers[i] = byteCharacters.charCodeAt(i);
+            }
+            const byteArray = new Uint8Array(byteNumbers);
+            const blob = new Blob([byteArray], { type: contentType });
+            const url = window.URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            window.URL.revokeObjectURL(url);
+            console.log(`Download da fatura ${filename} iniciado.`);
+            console.log(
+              `[OrdersTable] Initiated download for invoice ${filename} of order ${orderNumber}`,
+            );
+          } catch (err) {
+            console.error(
+              `[OrdersTable] Failed to process PDF download for order ${orderNumber}: ${err.message}`,
+            );
+            console.error(
+              `Falha ao carregar o documento PDF para o pedido ${orderNumber}.`,
+            );
+          }
+        } else {
+          console.warn(`[OrdersTable] No invoiceFile for order ${orderNumber}`);
+          console.warn(
+            `Fatura ${invoiceNumber} gerada, mas o PDF não está disponível para o pedido ${orderNumber}.`,
           );
         }
       }
     }
-  }, [fetcher.data, fetcher.state]);
+  }, [fetcher.data, fetcher.state, isClient]);
 
   const translateStatus = (status) => (status === "PAID" ? "Pago" : status);
 
@@ -351,7 +366,7 @@ export default function OrdersTable() {
           </nav>
         )}
 
-        {selectedOrder && (
+        {isClient && selectedOrder && (
           <div
             className={`modal fade ${showModal ? "show d-block" : ""}`}
             tabIndex="-1"
