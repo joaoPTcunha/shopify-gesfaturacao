@@ -1,8 +1,11 @@
 import { json } from "@remix-run/node";
+import prisma from "../../prisma/client";
 import OrdersTable from "../components/OrdersTable";
 import { fetchClientDataFromOrder } from "../services/client";
 import { fetchProductDataFromOrder } from "../services/product";
 import { generateInvoice } from "../services/receipt-invoice";
+import { downloadInvoicePDF } from "../services/download";
+import { sendEmail } from "../services/sendEmail";
 
 export async function loader() {
   try {
@@ -176,7 +179,43 @@ export async function loader() {
         : null,
     }));
 
-    return json({ orders, error: null });
+    // Fetch invoice numbers from GESinvoices
+    const orderIds = orders.map((order) => order.id.toString());
+    const invoices = await prisma.gESinvoices.findMany({
+      where: {
+        order_id: { in: orderIds },
+      },
+      select: {
+        order_id: true,
+        invoice_number: true,
+        invoice_status: true,
+      },
+    });
+
+    // Merge invoice numbers into orders
+    const ordersWithInvoices = orders.map((order) => {
+      const invoice = invoices.find(
+        (inv) => inv.order_id === order.id.toString(),
+      );
+      return {
+        ...order,
+        invoiceNumber: invoice ? invoice.invoice_number : "N/A",
+      };
+    });
+
+    console.log(
+      "[Loader] Orders with invoice numbers:",
+      JSON.stringify(
+        ordersWithInvoices.map((o) => ({
+          orderNumber: o.orderNumber,
+          invoiceNumber: o.invoiceNumber,
+        })),
+        null,
+        2,
+      ),
+    );
+
+    return json({ orders: ordersWithInvoices, error: null });
   } catch (error) {
     console.error("Erro ao buscar pedidos:", error);
     return json({ orders: [], error: error.message }, { status: 500 });
@@ -187,9 +226,11 @@ export async function action({ request }) {
   let order = null;
   let clientResult = null;
   let productResults = [];
+  let actionType = null; // Inicializa actionType como null
+
   try {
     const formData = await request.formData();
-    const actionType = formData.get("actionType") || "generateInvoice";
+    actionType = formData.get("actionType")?.toString() || "generateInvoice"; // Garante que actionType seja uma string
     const orderData = formData.get("order");
 
     if (!orderData) {
@@ -208,10 +249,6 @@ export async function action({ request }) {
     if (actionType === "generateInvoice") {
       console.log(
         `[ges-orders/action] Processing invoice generation for order ${orderNumber} (ID: ${orderId})`,
-      );
-      console.log(
-        `[ges-orders/action] Received order data:`,
-        JSON.stringify(order, null, 2),
       );
 
       clientResult = await fetchClientDataFromOrder(order);
@@ -261,8 +298,99 @@ export async function action({ request }) {
       }
 
       const invoiceResult = await generateInvoice(order);
-
       return json(invoiceResult);
+    } else if (actionType === "downloadInvoice") {
+      console.log(
+        `[ges-orders/action] Processing invoice download for order ${orderNumber} (ID: ${orderId})`,
+      );
+
+      const existingInvoice = await prisma.gESinvoices.findFirst({
+        where: { order_id: order.id.toString() },
+      });
+
+      if (!existingInvoice || existingInvoice.invoice_status !== 1) {
+        throw new Error(`No finalized invoice found for order ${orderNumber}`);
+      }
+
+      const login = await prisma.gESlogin.findFirst({
+        where: { dom_licenca: process.env.GES_LICENSE },
+        orderBy: { date_login: "desc" },
+      });
+
+      if (!login || !login.token || !login.dom_licenca || !login.id_serie) {
+        throw new Error("No active GES session found");
+      }
+
+      const expireDate = login.date_expire ? new Date(login.date_expire) : null;
+      if (!expireDate || expireDate < new Date()) {
+        await prisma.gESlogin.delete({ where: { id: login.id } });
+        throw new Error("GES session expired");
+      }
+
+      let apiUrl = login.dom_licenca;
+      if (!apiUrl.endsWith("/")) apiUrl += "/";
+
+      const invoiceFile = await downloadInvoicePDF(
+        apiUrl,
+        login.token,
+        existingInvoice.invoice_id,
+      );
+
+      return json({
+        success: true,
+        orderId,
+        orderNumber,
+        actionType,
+        invoiceFile,
+        invoiceNumber: existingInvoice.invoice_number,
+      });
+    } else if (actionType === "sendEmail") {
+      console.log(
+        `[ges-orders/action] Processing email send for order ${orderNumber} (ID: ${orderId})`,
+      );
+
+      const existingInvoice = await prisma.gESinvoices.findFirst({
+        where: { order_id: order.id.toString() },
+      });
+
+      if (!existingInvoice || existingInvoice.invoice_status !== 1) {
+        throw new Error(`No finalized invoice found for order ${orderNumber}`);
+      }
+
+      if (order.customerEmail === "N/A") {
+        throw new Error(`No customer email available for order ${orderNumber}`);
+      }
+
+      const login = await prisma.gESlogin.findFirst({
+        where: { dom_licenca: process.env.GES_LICENSE },
+        orderBy: { date_login: "desc" },
+      });
+
+      if (!login || !login.token || !login.dom_licenca) {
+        throw new Error("No active GES session found");
+      }
+
+      let apiUrl = login.dom_licenca;
+      if (!apiUrl.endsWith("/")) apiUrl += "/";
+
+      const emailResult = await sendEmail({
+        id: parseInt(existingInvoice.invoice_id),
+        type: "FR",
+        email: order.customerEmail,
+        expired: false,
+        apiUrl,
+        token: login.token,
+      });
+
+      return json({
+        success: true,
+        orderId,
+        orderNumber,
+        actionType,
+        invoiceNumber: existingInvoice.invoice_number,
+        emailSent: true,
+        emailResult,
+      });
     } else {
       throw new Error(`Unknown action type: ${actionType}`);
     }
@@ -284,6 +412,7 @@ export async function action({ request }) {
         error: `Failed to process order: ${error.message}`,
         orderId: order?.id || "unknown",
         orderNumber: order?.orderNumber || "unknown",
+        actionType: actionType || "unknown",
         clientId: clientResult?.clientId || null,
         clientFound: clientResult?.found || false,
         clientStatus: clientResult?.status || null,

@@ -3,7 +3,6 @@ import prisma from "../../prisma/client";
 export async function fetchShippingProductData(order, apiUrl, token) {
   console.log("[fetchShippingProductData] Fetching shipping product data...");
 
-  // Fetch id_product_shipping from gESlogin
   const login = await prisma.gESlogin.findFirst({
     where: { dom_licenca: process.env.GES_LICENSE },
     orderBy: { date_login: "desc" },
@@ -16,7 +15,6 @@ export async function fetchShippingProductData(order, apiUrl, token) {
     return null;
   }
 
-  // Check if order has a valid shipping price
   if (!order.shippingLine?.price || order.shippingLine.price <= 0) {
     console.warn(
       "[fetchShippingProductData] No valid shipping price found in order, skipping shipping line item",
@@ -50,8 +48,9 @@ export async function fetchShippingProductData(order, apiUrl, token) {
       JSON.stringify(shippingProduct, null, 2),
     );
 
-    const shippingTaxId = shippingProduct.data?.tax?.id || 1; // Default to taxId 1 (23%) if not specified
-    const shippingDescription = shippingProduct.data?.description || "Portes"; // Use API description, fallback to "Portes"
+    const shippingTaxId = shippingProduct.data?.tax?.id || 1;
+    const shippingDescription =
+      shippingProduct.data?.description || "Nome Não Encontrado";
 
     return {
       lineItem: {

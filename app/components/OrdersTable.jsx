@@ -10,11 +10,19 @@ export default function OrdersTable() {
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [isClient, setIsClient] = useState(false);
+  const [showDevelopmentMessage, setShowDevelopmentMessage] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
   const fetcher = useFetcher();
 
   useEffect(() => {
     setIsClient(true);
   }, []);
+
+  useEffect(() => {
+    if (fetcher.state === "idle") {
+      setIsProcessing(false);
+    }
+  }, [fetcher.state]);
 
   const currentPage = parseInt(searchParams.get("page") || "1", 10);
   const pageSize = 10;
@@ -46,35 +54,48 @@ export default function OrdersTable() {
   );
 
   const handleShowDetails = (order) => {
+    if (isProcessing) return;
+    setIsProcessing(true);
     setSelectedOrder(order);
     setShowModal(true);
+    // Simulate client-side action completion
+    setTimeout(() => setIsProcessing(false), 500);
   };
 
   const handleSendEmail = (orderId, orderNumber, customerEmail) => {
-    if (!isClient) return;
+    if (!isClient || isProcessing) return;
+    setIsProcessing(true);
     if (customerEmail !== "N/A") {
-      console.log(
-        `Enviando email para o pedido ${orderNumber}... (em desenvolvimento)`,
-      );
     } else {
       console.log(`Email não disponível para o pedido ${orderNumber}.`);
     }
+    // Simulate client-side action completion
+    setTimeout(() => setIsProcessing(false), 500);
   };
 
-  const handleGenerateInvoice = (orderId, orderNumber) => {
-    if (!isClient) return;
+  const handleGenerateInvoice = (orderId, orderNumber, isDownload = false) => {
+    if (!isClient || isProcessing) return;
     const order = orders.find((o) => o.id === orderId);
     if (!order) {
       console.error(`Erro: Pedido ${orderNumber} não encontrado`);
       return;
     }
-    console.log(`Gerando fatura para o pedido ${orderNumber}...`);
+    console.log(
+      `${isDownload ? "Baixando" : "Gerando"} fatura para o pedido ${orderNumber}...`,
+    );
+    setShowDevelopmentMessage(true);
+    setTimeout(() => setShowDevelopmentMessage(false), 3000);
+    setIsProcessing(true);
+
     const formData = new FormData();
-    formData.append("actionType", "generateInvoice");
+    formData.append(
+      "actionType",
+      isDownload ? "downloadInvoice" : "generateInvoice",
+    );
     formData.append("order", JSON.stringify(order));
 
     console.log(
-      `[OrdersTable] Submitting invoice generation for order ${orderNumber} (ID: ${orderId})`,
+      `[OrdersTable] Submitting ${isDownload ? "download" : "invoice generation"} for order ${orderNumber} (ID: ${orderId})`,
       JSON.stringify(order, null, 2),
     );
 
@@ -93,13 +114,12 @@ export default function OrdersTable() {
         );
         if (isClient) {
           console.error(
-            `Erro ao gerar fatura para o pedido ${orderNumber}: ${error}`,
+            `Erro ao ${fetcher.data.actionType === "downloadInvoice" ? "baixar" : "gerar"} fatura para o pedido ${orderNumber}: ${error}`,
           );
         }
         return;
       }
 
-      // Update the order's invoiceNumber in local state
       setOrders((prevOrders) =>
         prevOrders.map((order) =>
           order.id === orderId ? { ...order, invoiceNumber } : order,
@@ -108,7 +128,7 @@ export default function OrdersTable() {
 
       if (isClient) {
         console.log(
-          `Fatura ${invoiceNumber} gerada com sucesso para o pedido ${orderNumber}!`,
+          `Fatura ${invoiceNumber} ${fetcher.data.actionType === "downloadInvoice" ? "baixada" : "gerada"} com sucesso para o pedido ${orderNumber}!`,
         );
 
         if (invoiceFile) {
@@ -118,7 +138,6 @@ export default function OrdersTable() {
               throw new Error("Invalid or missing Base64 data in invoiceFile");
             }
 
-            // Create Blob from Base64
             const byteCharacters = atob(data);
             const byteNumbers = new Array(byteCharacters.length);
             for (let i = 0; i < byteCharacters.length; i++) {
@@ -149,7 +168,7 @@ export default function OrdersTable() {
         } else {
           console.warn(`[OrdersTable] No invoiceFile for order ${orderNumber}`);
           console.warn(
-            `Fatura ${invoiceNumber} gerada, mas o PDF não está disponível para o pedido ${orderNumber}.`,
+            `Fatura ${invoiceNumber} ${fetcher.data.actionType === "downloadInvoice" ? "não baixada" : "gerada"}, mas o PDF não está disponível para o pedido ${orderNumber}.`,
           );
         }
       }
@@ -297,20 +316,46 @@ export default function OrdersTable() {
                       </td>
                       <td>{order.totalValue.toFixed(2)}</td>
                       <td>{translateStatus(order.status)}</td>
-                      <td>{order.invoiceNumber || "N/A"}</td>
+                      <td>
+                        {order.invoiceNumber &&
+                        order.invoiceNumber !== "N/A" ? (
+                          <button
+                            className="btn p-0 text-decoration-underline invoice-link"
+                            title="Download da Fatura"
+                            onClick={() =>
+                              handleGenerateInvoice(
+                                order.id,
+                                order.orderNumber,
+                                true,
+                              )
+                            }
+                            disabled={isProcessing}
+                          >
+                            {order.invoiceNumber}
+                          </button>
+                        ) : (
+                          "-----"
+                        )}
+                      </td>
                       <td>
                         <button
                           className="btn btn-sm btn-outline-info me-2"
                           title="Detalhe Ordem"
                           onClick={() => handleShowDetails(order)}
+                          disabled={isProcessing}
                         >
                           <img
                             src="/icons/magnifying-glass.png"
                             alt="Detalhe Ordem"
-                            style={{ width: "22px", height: "22px" }}
+                            style={{
+                              width: "22px",
+                              height: "22px",
+                              filter: isProcessing ? "grayscale(100%)" : "none",
+                            }}
                           />
                         </button>
-                        {order.invoiceNumber && (
+                        {order.invoiceNumber &&
+                        order.invoiceNumber !== "N/A" ? (
                           <button
                             className="btn btn-sm btn-outline-secondary me-2"
                             title="Enviar Email"
@@ -321,28 +366,42 @@ export default function OrdersTable() {
                                 order.customerEmail,
                               )
                             }
+                            disabled={isProcessing}
                           >
                             <img
                               src="/icons/mail.png"
                               alt="Enviar Email"
-                              style={{ width: "22px", height: "22px" }}
+                              style={{
+                                width: "22px",
+                                height: "22px",
+                                filter: isProcessing
+                                  ? "grayscale(100%)"
+                                  : "none",
+                              }}
+                            />
+                          </button>
+                        ) : (
+                          <button
+                            className="btn btn-sm btn-outline-primary"
+                            title="Gerar Fatura"
+                            onClick={() =>
+                              handleGenerateInvoice(order.id, order.orderNumber)
+                            }
+                            disabled={isProcessing}
+                          >
+                            <img
+                              src="/icons/invoice.png"
+                              alt="Gerar Fatura"
+                              style={{
+                                width: "22px",
+                                height: "22px",
+                                filter: isProcessing
+                                  ? "grayscale(100%)"
+                                  : "none",
+                              }}
                             />
                           </button>
                         )}
-                        <button
-                          className="btn btn-sm btn-outline-primary"
-                          title="Gerar Fatura"
-                          onClick={() =>
-                            handleGenerateInvoice(order.id, order.orderNumber)
-                          }
-                          disabled={fetcher.state !== "idle"}
-                        >
-                          <img
-                            src="/icons/invoice.png"
-                            alt="Gerar Fatura"
-                            style={{ width: "22px", height: "22px" }}
-                          />
-                        </button>
                       </td>
                     </tr>
                   ))
@@ -436,7 +495,7 @@ export default function OrdersTable() {
                       <div className="col-md-6 mb-2">
                         <p>
                           <strong>N.º Fatura:</strong>{" "}
-                          {selectedOrder.invoiceNumber || "N/A"}
+                          {selectedOrder.invoiceNumber || "-----"}
                         </p>
                         <p>
                           <strong>Total de Itens:</strong>{" "}
@@ -551,6 +610,20 @@ export default function OrdersTable() {
           </div>
         )}
       </div>
+
+      <style>{`
+        .invoice-link:disabled {
+          color: #6c757d;
+          cursor: not-allowed;
+          text-decoration: none;
+        }
+        .btn-outline-info:disabled,
+        .btn-outline-secondary:disabled,
+        .btn-outline-primary:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+        }
+      `}</style>
     </Layout>
   );
 }
