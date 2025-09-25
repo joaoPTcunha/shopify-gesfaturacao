@@ -205,19 +205,6 @@ export async function loader() {
       };
     });
 
-    console.log(
-      "[Loader] Orders with invoice numbers:",
-      JSON.stringify(
-        ordersWithInvoices.map((o) => ({
-          orderNumber: o.orderNumber,
-          invoiceNumber: o.invoiceNumber,
-          invoiceId: o.invoiceId,
-        })),
-        null,
-        2,
-      ),
-    );
-
     return json({ orders: ordersWithInvoices, error: null });
   } catch (error) {
     console.error("Erro ao buscar pedidos:", error);
