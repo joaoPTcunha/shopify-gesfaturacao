@@ -1,7 +1,7 @@
 import { json } from "@remix-run/node";
 import OrdersTable from "../components/OrdersTable";
-import { fetchClientDataFromOrder } from "../services/clientService";
-import { fetchProductDataFromOrder } from "../services/productService";
+import { fetchClientDataFromOrder } from "../services/client";
+import { fetchProductDataFromOrder } from "../services/product";
 import { generateInvoice } from "../services/receipt-invoice";
 
 export async function loader() {

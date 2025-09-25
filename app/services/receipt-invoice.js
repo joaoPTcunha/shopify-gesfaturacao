@@ -1,6 +1,7 @@
 import prisma from "../../prisma/client";
-import { fetchClientDataFromOrder } from "../services/clientService";
-import { fetchProductDataFromOrder } from "../services/productService";
+import { fetchClientDataFromOrder } from "../services/client";
+import { fetchProductDataFromOrder } from "../services/product";
+import { fetchShippingProductData } from "../services/shipping";
 
 export async function generateInvoice(order) {
   console.log(
@@ -124,6 +125,21 @@ export async function generateInvoice(order) {
       status: productResult.status,
       found: productResult.found,
     });
+  }
+
+  // Add shipping as a line item
+  const shippingData = await fetchShippingProductData(
+    order,
+    apiUrl,
+    login.token,
+  );
+  if (shippingData) {
+    lines.push(shippingData.lineItem);
+    productResults.push(shippingData.productResult);
+    console.log(
+      `[generateInvoice] Added shipping line item:`,
+      JSON.stringify(shippingData.lineItem, null, 2),
+    );
   }
 
   const date = new Date().toISOString().split("T")[0];
