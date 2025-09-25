@@ -16,12 +16,21 @@ export async function fetchClientDataFromOrder(order) {
     );
   }
 
+  // Normalize name to remove accents and special characters
+  const normalizeName = (name) => {
+    if (!name || name === "N/A") return "";
+    return name
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "") // Remove accents
+      .replace(/[^a-zA-Z0-9\s]/g, "") // Remove special characters
+      .toLowerCase()
+      .trim();
+  };
+
   // Format phone number to remove country code and ensure 9 digits
   const formatPhoneNumber = (phone) => {
     if (!phone || phone === "N/A") return "";
-    // Remove country code (+ followed by 1-3 digits) and non-digits
     const cleaned = phone.replace(/^\+\d{1,3}\s?/, "").replace(/\D/g, "");
-    // Take last 9 digits if longer, or return as is if shorter
     return cleaned.length > 9 ? cleaned.slice(-9) : cleaned;
   };
 
@@ -71,7 +80,7 @@ export async function fetchClientDataFromOrder(order) {
     JSON.stringify(order.customerMetafields, null, 2),
   );
   console.log(
-    `[fetchClientDataFromOrder] Extracted taxId: ${customerData.taxId}, name: ${customerData.name}`,
+    `[fetchClientDataFromOrder] Extracted taxId: ${customerData.taxId}, name: ${customerData.name}, company: ${customerData.company}`,
   );
 
   customerData.name =
@@ -104,70 +113,25 @@ export async function fetchClientDataFromOrder(order) {
     throw new Error("Missing TIN or name for client search");
   }
 
-  const searchUrl = `${apiUrl}clients/tin/search/${encodeURIComponent(customerData.taxId)}/${encodeURIComponent(customerData.name)}`;
-  console.log(
-    `[fetchClientDataFromOrder] Checking client existence: ${searchUrl}`,
-  );
+  // Try searching with normalized name and company name
+  const searchNames = [
+    customerData.name,
+    customerData.company !== "N/A" ? customerData.company : null,
+  ].filter(Boolean);
 
-  let searchResponse;
-  try {
-    searchResponse = await fetch(searchUrl, {
-      method: "GET",
-      headers: {
-        Authorization: login.token,
-        Accept: "application/json",
-        "Content-Type": "application/json",
-      },
-    });
-  } catch (fetchError) {
-    console.error(
-      `[fetchClientDataFromOrder] Fetch failed for search: ${fetchError.message}`,
-    );
-    throw new Error(`Client search fetch failed: ${fetchError.message}`);
-  }
+  let clientId = null;
+  let clientStatus = "not_found";
 
-  let searchResponseText;
-  try {
-    searchResponseText = await searchResponse.text();
+  for (const searchName of searchNames) {
+    const normalizedSearchName = normalizeName(searchName);
+    const searchUrl = `${apiUrl}clients/tin/search/${encodeURIComponent(customerData.taxId)}/${encodeURIComponent(normalizedSearchName)}`;
     console.log(
-      `[fetchClientDataFromOrder] Raw search response text for order ${order.orderNumber}:`,
-      searchResponseText,
-    );
-  } catch (textError) {
-    console.error(
-      `[fetchClientDataFromOrder] Failed to read search response text: ${textError.message}`,
-    );
-    throw new Error(`Failed to read search response: ${textError.message}`);
-  }
-
-  console.log(
-    `[fetchClientDataFromOrder] GESfaturacao search response status: ${searchResponse.status}, headers: ${JSON.stringify([...searchResponse.headers])}, body: ${searchResponseText}`,
-  );
-
-  let searchResponseBody;
-  try {
-    searchResponseBody = JSON.parse(searchResponseText);
-  } catch (parseError) {
-    console.error(
-      `[fetchClientDataFromOrder] Failed to parse search response as JSON: ${parseError.message}`,
-    );
-    searchResponseBody = {};
-  }
-
-  // Handle 404 or CLC_CLIENT_NOT_FOUND explicitly
-  if (
-    searchResponse.status === 404 ||
-    (searchResponseBody.errors &&
-      searchResponseBody.errors.code === "CLC_CLIENT_NOT_FOUND")
-  ) {
-    console.log(
-      `[fetchClientDataFromOrder] Client not found for order ${order.orderNumber}, attempting to create`,
+      `[fetchClientDataFromOrder] Checking client existence with taxId: ${customerData.taxId}, name: ${normalizedSearchName}, URL: ${searchUrl}`,
     );
 
-    // Double-check to avoid duplicates
-    let recheckResponse;
+    let searchResponse;
     try {
-      recheckResponse = await fetch(searchUrl, {
+      searchResponse = await fetch(searchUrl, {
         method: "GET",
         headers: {
           Authorization: login.token,
@@ -175,185 +139,44 @@ export async function fetchClientDataFromOrder(order) {
           "Content-Type": "application/json",
         },
       });
-    } catch (recheckError) {
+    } catch (fetchError) {
       console.error(
-        `[fetchClientDataFromOrder] Recheck fetch failed: ${recheckError.message}`,
+        `[fetchClientDataFromOrder] Fetch failed for search: ${fetchError.message}`,
       );
-      // Proceed to creation if recheck fails
+      continue; // Try next name if search fails
     }
 
-    if (recheckResponse?.ok) {
-      try {
-        const client = JSON.parse(await recheckResponse.text());
-        console.log(
-          `[fetchClientDataFromOrder] Client found on recheck for order ${order.orderNumber}:`,
-          JSON.stringify(client, null, 2),
-        );
-        if (!client.data?.id && !client.id) {
-          console.error(
-            `[fetchClientDataFromOrder] Client ID missing in recheck response for order ${order.orderNumber}`,
-          );
-          throw new Error("Client ID missing in GESfaturacao recheck response");
-        }
-        return {
-          clientId: client.data?.id || client.id,
-          found: true,
-          customerData,
-          status: "found",
-        };
-      } catch (parseError) {
-        console.error(
-          `[fetchClientDataFromOrder] Failed to parse recheck response: ${parseError.message}`,
-        );
-        // Proceed to creation if parsing fails
-      }
-    }
-
-    // Create client using shippingAddress and additional GESfaturacao fields
-    const createUrl = `${apiUrl}clients`;
-    const formattedPhone = formatPhoneNumber(customerData.phone);
-    const clientData = {
-      name: customerData.name,
-      vatNumber: customerData.taxId !== "N/A" ? customerData.taxId : "",
-      country:
-        customerData.shippingAddress?.country === "Portugal"
-          ? "PT"
-          : customerData.shippingAddress?.country ||
-            customerData.billingAddress?.country ||
-            "PT",
-      address:
-        customerData.shippingAddress?.address1 ||
-        customerData.billingAddress?.address1 ||
-        "",
-      zipCode:
-        customerData.shippingAddress?.zip ||
-        customerData.billingAddress?.zip ||
-        "",
-      city:
-        customerData.shippingAddress?.city ||
-        customerData.billingAddress?.city ||
-        "",
-      region:
-        customerData.shippingAddress?.province ||
-        customerData.billingAddress?.province ||
-        "",
-      local:
-        customerData.shippingAddress?.address2 ||
-        customerData.billingAddress?.address2 ||
-        "",
-      email: customerData.email !== "N/A" ? customerData.email : "",
-      mobile: formattedPhone,
-      telephone: formattedPhone,
-      website: "",
-      fax: "",
-      representativeName: customerData.name,
-      representativeEmail:
-        customerData.email !== "N/A" ? customerData.email : "",
-      representativeMobile: formattedPhone,
-      representativeTelephone: formattedPhone,
-      accountType: 0,
-      ivaExempted: customerData.taxExempt || false,
-      exemptedReason: customerData.taxExempt ? 1 : 0,
-      paymentMethod: order.paymentGatewayNames?.includes("manual")
-        ? "Manual"
-        : "",
-      paymentConditions: "",
-      discount: 0,
-      internalCode: "",
-      comments: order.note || "",
-    };
-
-    console.log(
-      `[fetchClientDataFromOrder] Creating client for order ${order.orderNumber}:`,
-      JSON.stringify(clientData, null, 2),
-    );
-
-    let createResponse;
+    let searchResponseText;
     try {
-      createResponse = await fetch(createUrl, {
-        method: "POST",
-        headers: {
-          Authorization: login.token,
-          Accept: "application/json",
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(clientData),
-      });
-    } catch (createError) {
-      console.error(
-        `[fetchClientDataFromOrder] Create fetch failed: ${createError.message}`,
-      );
-      throw new Error(`Client creation fetch failed: ${createError.message}`);
-    }
-
-    let createResponseText;
-    try {
-      createResponseText = await createResponse.text();
+      searchResponseText = await searchResponse.text();
       console.log(
-        `[fetchClientDataFromOrder] Raw create response text for order ${order.orderNumber}:`,
-        createResponseText,
-      );
-      console.log(
-        `[fetchClientDataFromOrder] GESfaturacao create response headers: ${JSON.stringify([...createResponse.headers])}`,
+        `[fetchClientDataFromOrder] Raw search response text for order ${order.orderNumber}:`,
+        searchResponseText,
       );
     } catch (textError) {
       console.error(
-        `[fetchClientDataFromOrder] Failed to read create response text: ${textError.message}`,
+        `[fetchClientDataFromOrder] Failed to read search response text: ${textError.message}`,
       );
-      throw new Error(`Failed to read create response: ${textError.message}`);
+      continue;
     }
 
     console.log(
-      `[fetchClientDataFromOrder] GESfaturacao create response status: ${createResponse.status}, body: ${createResponseText}`,
+      `[fetchClientDataFromOrder] GESfaturacao search response status: ${searchResponse.status}, headers: ${JSON.stringify([...searchResponse.headers])}, body: ${searchResponseText}`,
     );
 
-    if (createResponse.ok) {
-      try {
-        if (!createResponseText) {
-          console.error(
-            `[fetchClientDataFromOrder] Empty create response body for order ${order.orderNumber}`,
-          );
-          throw new Error("Empty response from GESfaturacao create");
-        }
-        const newClient = JSON.parse(createResponseText);
-        console.log(
-          `[fetchClientDataFromOrder] Client created for order ${order.orderNumber}:`,
-          JSON.stringify(newClient, null, 2),
-        );
-        if (!newClient.data?.id && !newClient.id) {
-          console.error(
-            `[fetchClientDataFromOrder] Client ID missing in create response for order ${order.orderNumber}`,
-          );
-          throw new Error("Client ID missing in GESfaturacao create response");
-        }
-        return {
-          clientId: newClient.data?.id || newClient.id,
-          found: true,
-          customerData,
-          status: "created",
-        };
-      } catch (parseError) {
-        console.error(
-          `[fetchClientDataFromOrder] Failed to parse create response for order ${order.orderNumber}: ${parseError.message}`,
-          `Raw response: ${createResponseText}`,
-        );
-        throw new Error(
-          `Invalid JSON response from GESfaturacao create: ${createResponseText}`,
-        );
-      }
-    } else {
-      console.error(
-        `[fetchClientDataFromOrder] Client creation failed for order ${order.orderNumber}: ${createResponse.status} - ${createResponseText}`,
-      );
-      throw new Error(
-        `Client creation failed: ${createResponseText || "Unknown error"}`,
-      );
-    }
-  }
-
-  if (searchResponse.ok) {
+    let searchResponseBody;
     try {
-      const client = JSON.parse(searchResponseText);
+      searchResponseBody = JSON.parse(searchResponseText);
+    } catch (parseError) {
+      console.error(
+        `[fetchClientDataFromOrder] Failed to parse search response as JSON: ${parseError.message}`,
+      );
+      searchResponseBody = {};
+      continue;
+    }
+
+    if (searchResponse.ok) {
+      const client = searchResponseBody;
       console.log(
         `[fetchClientDataFromOrder] Client found for order ${order.orderNumber}:`,
         JSON.stringify(client, null, 2),
@@ -362,26 +185,237 @@ export async function fetchClientDataFromOrder(order) {
         console.error(
           `[fetchClientDataFromOrder] Client ID missing in search response for order ${order.orderNumber}`,
         );
-        throw new Error("Client ID missing in GESfaturacao search response");
+        continue;
       }
-      return {
-        clientId: client.data?.id || client.id,
-        found: true,
-        customerData,
-        status: "found",
-      };
-    } catch (parseError) {
-      console.error(
-        `[fetchClientDataFromOrder] Failed to parse search response as JSON: ${parseError.message}`,
-      );
-      throw new Error("Invalid JSON response from GESfaturacao search");
+      clientId = client.data?.id || client.id;
+      clientStatus = "found";
+      break;
     }
   }
 
-  console.error(
-    `[fetchClientDataFromOrder] Unexpected search response: ${searchResponse.status} - ${searchResponseText}`,
+  if (clientId) {
+    return {
+      clientId,
+      found: true,
+      customerData,
+      status: clientStatus,
+    };
+  }
+
+  // If client not found, attempt to create
+  console.log(
+    `[fetchClientDataFromOrder] Client not found for order ${order.orderNumber}, attempting to create`,
   );
-  throw new Error(
-    `Unexpected client search response: ${searchResponseText || "Unknown error"}`,
+
+  const createUrl = `${apiUrl}clients`;
+  const formattedPhone = formatPhoneNumber(customerData.phone);
+  const clientData = {
+    name: customerData.name,
+    vatNumber: customerData.taxId !== "N/A" ? customerData.taxId : "",
+    country:
+      customerData.shippingAddress?.country === "Portugal"
+        ? "PT"
+        : customerData.shippingAddress?.country ||
+          customerData.billingAddress?.country ||
+          "PT",
+    address:
+      customerData.shippingAddress?.address1 ||
+      customerData.billingAddress?.address1 ||
+      "",
+    zipCode:
+      customerData.shippingAddress?.zip ||
+      customerData.billingAddress?.zip ||
+      "",
+    city:
+      customerData.shippingAddress?.city ||
+      customerData.billingAddress?.city ||
+      "",
+    region:
+      customerData.shippingAddress?.province ||
+      customerData.billingAddress?.province ||
+      "",
+    local:
+      customerData.shippingAddress?.address2 ||
+      customerData.billingAddress?.address2 ||
+      "",
+    email: customerData.email !== "N/A" ? customerData.email : "",
+    mobile: formattedPhone,
+    telephone: formattedPhone,
+    website: "",
+    fax: "",
+    representativeName: customerData.name,
+    representativeEmail: customerData.email !== "N/A" ? customerData.email : "",
+    representativeMobile: formattedPhone,
+    representativeTelephone: formattedPhone,
+    accountType: 0,
+    ivaExempted: customerData.taxExempt || false,
+    exemptedReason: customerData.taxExempt ? 1 : 0,
+    paymentMethod: order.paymentGatewayNames?.includes("manual")
+      ? "Manual"
+      : "",
+    paymentConditions: "",
+    discount: 0,
+    internalCode: "",
+    comments: order.note || "",
+  };
+
+  console.log(
+    `[fetchClientDataFromOrder] Creating client for order ${order.orderNumber}:`,
+    JSON.stringify(clientData, null, 2),
   );
+
+  let createResponse;
+  try {
+    createResponse = await fetch(createUrl, {
+      method: "POST",
+      headers: {
+        Authorization: login.token,
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(clientData),
+    });
+  } catch (createError) {
+    console.error(
+      `[fetchClientDataFromOrder] Create fetch failed: ${createError.message}`,
+    );
+    throw new Error(`Client creation fetch failed: ${createError.message}`);
+  }
+
+  let createResponseText;
+  try {
+    createResponseText = await createResponse.text();
+    console.log(
+      `[fetchClientDataFromOrder] Raw create response text for order ${order.orderNumber}:`,
+      createResponseText,
+    );
+    console.log(
+      `[fetchClientDataFromOrder] GESfaturacao create response headers: ${JSON.stringify([...createResponse.headers])}`,
+    );
+  } catch (textError) {
+    console.error(
+      `[fetchClientDataFromOrder] Failed to read create response text: ${textError.message}`,
+    );
+    throw new Error(`Failed to read create response: ${textError.message}`);
+  }
+
+  console.log(
+    `[fetchClientDataFromOrder] GESfaturacao create response status: ${createResponse.status}, body: ${createResponseText}`,
+  );
+
+  if (createResponse.ok) {
+    try {
+      if (!createResponseText) {
+        console.error(
+          `[fetchClientDataFromOrder] Empty create response body for order ${order.orderNumber}`,
+        );
+        throw new Error("Empty response from GESfaturacao create");
+      }
+      const newClient = JSON.parse(createResponseText);
+      console.log(
+        `[fetchClientDataFromOrder] Client created for order ${order.orderNumber}:`,
+        JSON.stringify(newClient, null, 2),
+      );
+      if (!newClient.data?.id && !newClient.id) {
+        console.error(
+          `[fetchClientDataFromOrder] Client ID missing in create response for order ${order.orderNumber}`,
+        );
+        throw new Error("Client ID missing in GESfaturacao create response");
+      }
+      return {
+        clientId: newClient.data?.id || newClient.id,
+        found: true,
+        customerData,
+        status: "created",
+      };
+    } catch (parseError) {
+      console.error(
+        `[fetchClientDataFromOrder] Failed to parse create response for order ${order.orderNumber}: ${parseError.message}`,
+        `Raw response: ${createResponseText}`,
+      );
+      throw new Error(
+        `Invalid JSON response from GESfaturacao create: ${createResponseText}`,
+      );
+    }
+  } else {
+    let createResponseBody;
+    try {
+      createResponseBody = JSON.parse(createResponseText);
+    } catch (parseError) {
+      console.error(
+        `[fetchClientDataFromOrder] Failed to parse create response as JSON: ${parseError.message}`,
+      );
+      createResponseBody = {};
+    }
+
+    if (
+      createResponseBody.errors &&
+      createResponseBody.errors.some((err) => err.code === "CLV_VAT_10")
+    ) {
+      console.log(
+        `[fetchClientDataFromOrder] VAT number not unique for order ${order.orderNumber}, attempting retry search`,
+      );
+
+      for (const searchName of searchNames) {
+        const normalizedSearchName = normalizeName(searchName);
+        const retrySearchUrl = `${apiUrl}clients/tin/search/${encodeURIComponent(customerData.taxId)}/${encodeURIComponent(normalizedSearchName)}`;
+        console.log(
+          `[fetchClientDataFromOrder] Retry search with taxId: ${customerData.taxId}, name: ${normalizedSearchName}, URL: ${retrySearchUrl}`,
+        );
+
+        let retrySearchResponse;
+        try {
+          retrySearchResponse = await fetch(retrySearchUrl, {
+            method: "GET",
+            headers: {
+              Authorization: login.token,
+              Accept: "application/json",
+              "Content-Type": "application/json",
+            },
+          });
+        } catch (retryError) {
+          console.error(
+            `[fetchClientDataFromOrder] Retry search fetch failed: ${retryError.message}`,
+          );
+          continue;
+        }
+
+        let retrySearchResponseText;
+        try {
+          retrySearchResponseText = await retrySearchResponse.text();
+        } catch (textError) {
+          console.error(
+            `[fetchClientDataFromOrder] Failed to read retry search response text: ${textError.message}`,
+          );
+          continue;
+        }
+
+        if (retrySearchResponse.ok) {
+          try {
+            const client = JSON.parse(retrySearchResponseText);
+            if (!client.data?.id && !client.id) {
+              continue;
+            }
+            return {
+              clientId: client.data?.id || client.id,
+              found: true,
+              customerData,
+              status: "found",
+            };
+          } catch (parseError) {
+            console.error(
+              `[fetchClientDataFromOrder] Failed to parse retry search response as JSON: ${parseError.message}`,
+            );
+            continue;
+          }
+        }
+      }
+      throw new Error(
+        `Retry client search failed: Unable to find client with VAT ${customerData.taxId}`,
+      );
+    }
+    throw new Error(
+      `Client creation failed: ${createResponseText || "Unknown error"}`,
+    );
+  }
 }

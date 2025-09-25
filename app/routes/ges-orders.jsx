@@ -189,6 +189,7 @@ export async function loader() {
         order_id: true,
         invoice_number: true,
         invoice_status: true,
+        invoice_id: true,
       },
     });
 
@@ -200,6 +201,7 @@ export async function loader() {
       return {
         ...order,
         invoiceNumber: invoice ? invoice.invoice_number : "N/A",
+        invoiceId: invoice ? invoice.invoice_id : null,
       };
     });
 
@@ -209,6 +211,7 @@ export async function loader() {
         ordersWithInvoices.map((o) => ({
           orderNumber: o.orderNumber,
           invoiceNumber: o.invoiceNumber,
+          invoiceId: o.invoiceId,
         })),
         null,
         2,
@@ -226,43 +229,44 @@ export async function action({ request }) {
   let order = null;
   let clientResult = null;
   let productResults = [];
-  let actionType = null; // Inicializa actionType como null
+  let actionType = null;
 
   try {
     const formData = await request.formData();
-    actionType = formData.get("actionType")?.toString() || "generateInvoice"; // Garante que actionType seja uma string
-    const orderData = formData.get("order");
-
-    if (!orderData) {
-      throw new Error("No order data provided in FormData");
-    }
-
-    try {
-      order = JSON.parse(orderData);
-    } catch (parseError) {
-      throw new Error(`Failed to parse order data: ${parseError.message}`);
-    }
-
-    const orderId = order.id;
-    const orderNumber = order.orderNumber;
+    actionType = formData.get("actionType")?.toString() || "generateInvoice";
+    const orderId = formData.get("orderId")?.toString();
+    const orderNumber = formData.get("orderNumber")?.toString();
+    const customerEmail = formData.get("customerEmail")?.toString();
+    const invoiceNumber = formData.get("invoiceNumber")?.toString();
 
     if (actionType === "generateInvoice") {
+      const orderData = formData.get("order");
+      if (!orderData) {
+        throw new Error("No order data provided in FormData");
+      }
+
+      try {
+        order = JSON.parse(orderData);
+      } catch (parseError) {
+        throw new Error(`Failed to parse order data: ${parseError.message}`);
+      }
+
       console.log(
-        `[ges-orders/action] Processing invoice generation for order ${orderNumber} (ID: ${orderId})`,
+        `[ges-orders/action] Processing invoice generation for order ${order.orderNumber} (ID: ${order.id})`,
       );
 
       clientResult = await fetchClientDataFromOrder(order);
       console.log(
-        `[ges-orders/action] Client ${clientResult.status} for order ${orderNumber}: ID ${clientResult.clientId}`,
+        `[ges-orders/action] Client ${clientResult.status} for order ${order.orderNumber}: ID ${clientResult.clientId}`,
       );
       console.log(
-        `[ges-orders/action] Client result for order ${orderNumber}:`,
+        `[ges-orders/action] Client result for order ${order.orderNumber}:`,
         JSON.stringify(clientResult, null, 2),
       );
 
       if (!clientResult.clientId || !clientResult.status) {
         console.error(
-          `[ges-orders/action] Invalid client result for order ${orderNumber}: missing clientId or status`,
+          `[ges-orders/action] Invalid client result for order ${order.orderNumber}: missing clientId or status`,
           JSON.stringify(clientResult, null, 2),
         );
         throw new Error(
@@ -289,7 +293,7 @@ export async function action({ request }) {
         productResults.some((result) => !result.productId || !result.status)
       ) {
         console.error(
-          `[ges-orders/action] Invalid product result for order ${orderNumber}:`,
+          `[ges-orders/action] Invalid product result for order ${order.orderNumber}:`,
           JSON.stringify(productResults, null, 2),
         );
         throw new Error(
@@ -305,7 +309,7 @@ export async function action({ request }) {
       );
 
       const existingInvoice = await prisma.gESinvoices.findFirst({
-        where: { order_id: order.id.toString() },
+        where: { order_id: orderId },
       });
 
       if (!existingInvoice || existingInvoice.invoice_status !== 1) {
@@ -349,16 +353,26 @@ export async function action({ request }) {
         `[ges-orders/action] Processing email send for order ${orderNumber} (ID: ${orderId})`,
       );
 
+      if (
+        !orderId ||
+        !orderNumber ||
+        !customerEmail ||
+        !invoiceNumber ||
+        invoiceNumber === "N/A"
+      ) {
+        throw new Error(
+          `Missing or invalid parameters for sendEmail: orderId=${orderId}, orderNumber=${orderNumber}, customerEmail=${customerEmail}, invoiceNumber=${invoiceNumber}`,
+        );
+      }
+
       const existingInvoice = await prisma.gESinvoices.findFirst({
-        where: { order_id: order.id.toString() },
+        where: { order_id: orderId, invoice_number: invoiceNumber },
       });
 
       if (!existingInvoice || existingInvoice.invoice_status !== 1) {
-        throw new Error(`No finalized invoice found for order ${orderNumber}`);
-      }
-
-      if (order.customerEmail === "N/A") {
-        throw new Error(`No customer email available for order ${orderNumber}`);
+        throw new Error(
+          `No finalized invoice found for order ${orderNumber} with invoice number ${invoiceNumber}`,
+        );
       }
 
       const login = await prisma.gESlogin.findFirst({
@@ -370,24 +384,34 @@ export async function action({ request }) {
         throw new Error("No active GES session found");
       }
 
+      const expireDate = login.date_expire ? new Date(login.date_expire) : null;
+      if (!expireDate || expireDate < new Date()) {
+        await prisma.gESlogin.delete({ where: { id: login.id } });
+        throw new Error("GES session expired");
+      }
+
       let apiUrl = login.dom_licenca;
       if (!apiUrl.endsWith("/")) apiUrl += "/";
 
       const emailResult = await sendEmail({
-        id: parseInt(existingInvoice.invoice_id),
+        id: existingInvoice.invoice_id,
         type: "FR",
-        email: order.customerEmail,
+        email: customerEmail,
         expired: false,
         apiUrl,
         token: login.token,
       });
+
+      console.log(
+        `[ges-orders/action] Email sent successfully for order ${orderNumber} to ${customerEmail}`,
+      );
 
       return json({
         success: true,
         orderId,
         orderNumber,
         actionType,
-        invoiceNumber: existingInvoice.invoice_number,
+        invoiceNumber,
         emailSent: true,
         emailResult,
       });
@@ -396,7 +420,7 @@ export async function action({ request }) {
     }
   } catch (error) {
     console.error(
-      `[ges-orders/action] Error processing order ${order?.orderNumber || "unknown"} (ID: ${order?.id || "unknown"}): ${error.message}`,
+      `[ges-orders/action] Error processing order ${order?.orderNumber || orderNumber || "unknown"} (ID: ${order?.id || orderId || "unknown"}): ${error.message}`,
     );
     console.log(
       `[ges-orders/action] Client result during error:`,
@@ -410,8 +434,8 @@ export async function action({ request }) {
     return json(
       {
         error: `Failed to process order: ${error.message}`,
-        orderId: order?.id || "unknown",
-        orderNumber: order?.orderNumber || "unknown",
+        orderId: order?.id || orderId || "unknown",
+        orderNumber: order?.orderNumber || orderNumber || "unknown",
         actionType: actionType || "unknown",
         clientId: clientResult?.clientId || null,
         clientFound: clientResult?.found || false,

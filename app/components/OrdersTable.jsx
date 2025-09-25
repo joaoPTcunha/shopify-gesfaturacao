@@ -11,6 +11,7 @@ export default function OrdersTable() {
   const [searchTerm, setSearchTerm] = useState("");
   const [isClient, setIsClient] = useState(false);
   const [showDevelopmentMessage, setShowDevelopmentMessage] = useState(false);
+  const [message, setMessage] = useState(""); // Added to store success/error message
   const [isProcessing, setIsProcessing] = useState(false);
   const fetcher = useFetcher();
 
@@ -22,7 +23,201 @@ export default function OrdersTable() {
     if (fetcher.state === "idle") {
       setIsProcessing(false);
     }
-  }, [fetcher.state]);
+
+    if (fetcher.state === "idle" && fetcher.data) {
+      const {
+        orderId,
+        orderNumber,
+        error,
+        success,
+        invoiceFile,
+        invoiceNumber,
+        actionType,
+        emailSent,
+      } = fetcher.data;
+
+      if (error) {
+        console.error(
+          `[OrdersTable] Error processing order ${orderNumber} (ID: ${orderId}):`,
+          error,
+        );
+        let errorMessage = `Erro ao ${
+          actionType === "downloadInvoice"
+            ? "baixar"
+            : actionType === "sendEmail"
+              ? "enviar email"
+              : "gerar"
+        } fatura para o pedido ${orderNumber}: ${error}`;
+
+        if (error.includes("CLV_VAT_10")) {
+          errorMessage = `Erro ao gerar fatura para o pedido ${orderNumber}: Número de IVA já registrado. Verifique os dados do cliente no GESfaturacao.`;
+        } else if (error.includes("Unable to find or create client with VAT")) {
+          errorMessage = `Erro ao gerar fatura para o pedido ${orderNumber}: Cliente com IVA ${
+            orders
+              .find((o) => o.id === orderId)
+              ?.customerMetafields?.find((m) => m.node.key === "vat_number")
+              ?.node.value || "N/A"
+          } não encontrado ou não pôde ser criado. Verifique os dados no GESfaturacao.`;
+        } else if (actionType === "sendEmail") {
+          errorMessage = `Erro ao enviar email para o pedido ${orderNumber}: ${error}. Verifique se a fatura e o email do cliente estão corretos.`;
+        }
+
+        if (isClient) {
+          setMessage(errorMessage);
+          setShowDevelopmentMessage(true);
+          setTimeout(() => setShowDevelopmentMessage(false), 5000);
+        }
+        return;
+      }
+
+      if (success && actionType === "sendEmail") {
+        console.log(`Email enviado com sucesso para o pedido ${orderNumber}!`);
+        if (isClient) {
+          setMessage(`Email enviado com sucesso para o pedido ${orderNumber}!`);
+          setShowDevelopmentMessage(true);
+          setTimeout(() => setShowDevelopmentMessage(false), 3000);
+        }
+      }
+
+      if (
+        success &&
+        (actionType === "generateInvoice" || actionType === "downloadInvoice")
+      ) {
+        setOrders((prevOrders) =>
+          prevOrders.map((order) =>
+            order.id === orderId ? { ...order, invoiceNumber } : order,
+          ),
+        );
+
+        if (isClient) {
+          console.log(
+            `Fatura ${invoiceNumber} ${actionType === "downloadInvoice" ? "baixada" : "gerada"} com sucesso para o pedido ${orderNumber}!`,
+          );
+
+          if (invoiceFile) {
+            try {
+              const { contentType, data, filename } = invoiceFile;
+              if (!data || typeof data !== "string") {
+                throw new Error(
+                  "Invalid or missing Base64 data in invoiceFile",
+                );
+              }
+
+              const byteCharacters = atob(data);
+              const byteNumbers = new Array(byteCharacters.length);
+              for (let i = 0; i < byteCharacters.length; i++) {
+                byteNumbers[i] = byteCharacters.charCodeAt(i);
+              }
+              const byteArray = new Uint8Array(byteNumbers);
+              const blob = new Blob([byteArray], { type: contentType });
+              const url = window.URL.createObjectURL(blob);
+              const link = document.createElement("a");
+              link.href = url;
+              link.download = filename;
+              document.body.appendChild(link);
+              link.click();
+              document.body.removeChild(link);
+              window.URL.revokeObjectURL(url);
+              console.log(`Download da fatura ${filename} iniciado.`);
+            } catch (err) {
+              console.error(
+                `[OrdersTable] Failed to process PDF download for order ${orderNumber}: ${err.message}`,
+              );
+              setMessage(
+                `Falha ao carregar o documento PDF para o pedido ${orderNumber}.`,
+              );
+              setShowDevelopmentMessage(true);
+              setTimeout(() => setShowDevelopmentMessage(false), 5000);
+            }
+          } else if (actionType === "generateInvoice") {
+            setMessage(
+              `Fatura ${invoiceNumber} gerada com sucesso para o pedido ${orderNumber}!`,
+            );
+            setShowDevelopmentMessage(true);
+            setTimeout(() => setShowDevelopmentMessage(false), 3000);
+          }
+        }
+      }
+    }
+  }, [fetcher.data, fetcher.state, isClient]);
+
+  const handleShowDetails = (order) => {
+    if (isProcessing) return;
+    setIsProcessing(true);
+    setSelectedOrder(order);
+    setShowModal(true);
+    setTimeout(() => setIsProcessing(false), 500);
+  };
+
+  const handleSendEmail = (orderId, orderNumber, customerEmail) => {
+    if (!isClient || isProcessing) return;
+    setIsProcessing(true);
+
+    const order = orders.find((o) => o.id === orderId);
+    if (!order || !order.invoiceNumber || order.invoiceNumber === "N/A") {
+      console.error(`Fatura não encontrada para o pedido ${orderNumber}`);
+      setMessage(`Fatura não encontrada para o pedido ${orderNumber}.`);
+      setShowDevelopmentMessage(true);
+      setTimeout(() => setShowDevelopmentMessage(false), 3000);
+      setIsProcessing(false);
+      return;
+    }
+
+    if (customerEmail === "N/A") {
+      console.log(`Email não disponível para o pedido ${orderNumber}.`);
+      setMessage(`Email não disponível para o pedido ${orderNumber}.`);
+      setShowDevelopmentMessage(true);
+      setTimeout(() => setShowDevelopmentMessage(false), 3000);
+      setIsProcessing(false);
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("actionType", "sendEmail");
+    formData.append("orderId", orderId);
+    formData.append("orderNumber", orderNumber);
+    formData.append("customerEmail", customerEmail);
+    formData.append("invoiceNumber", order.invoiceNumber);
+
+    console.log(
+      `[OrdersTable] Submitting sendEmail for order ${orderNumber} (ID: ${orderId})`,
+      { customerEmail, invoiceNumber: order.invoiceNumber },
+    );
+
+    fetcher.submit(formData, { method: "post", action: "/ges-orders" });
+  };
+
+  const handleGenerateInvoice = (orderId, orderNumber, isDownload = false) => {
+    if (!isClient || isProcessing) return;
+    const order = orders.find((o) => o.id === orderId);
+    if (!order) {
+      console.error(`Erro: Pedido ${orderNumber} não encontrado`);
+      setMessage(`Erro: Pedido ${orderNumber} não encontrado`);
+      setShowDevelopmentMessage(true);
+      setTimeout(() => setShowDevelopmentMessage(false), 3000);
+      return;
+    }
+    console.log(
+      `${isDownload ? "Baixando" : "Gerando"} fatura para o pedido ${orderNumber}...`,
+    );
+    setIsProcessing(true);
+
+    const formData = new FormData();
+    formData.append(
+      "actionType",
+      isDownload ? "downloadInvoice" : "generateInvoice",
+    );
+    formData.append("order", JSON.stringify(order));
+
+    console.log(
+      `[OrdersTable] Submitting ${isDownload ? "download" : "invoice generation"} for order ${orderNumber} (ID: ${orderId})`,
+      JSON.stringify(order, null, 2),
+    );
+
+    fetcher.submit(formData, { method: "post", action: "/ges-orders" });
+  };
+
+  const translateStatus = (status) => (status === "PAID" ? "Pago" : status);
 
   const currentPage = parseInt(searchParams.get("page") || "1", 10);
   const pageSize = 10;
@@ -52,136 +247,6 @@ export default function OrdersTable() {
     (currentPage - 1) * pageSize,
     currentPage * pageSize,
   );
-
-  const handleShowDetails = (order) => {
-    if (isProcessing) return;
-    setIsProcessing(true);
-    setSelectedOrder(order);
-    setShowModal(true);
-    // Simulate client-side action completion
-    setTimeout(() => setIsProcessing(false), 500);
-  };
-
-  const handleSendEmail = (orderId, orderNumber, customerEmail) => {
-    if (!isClient || isProcessing) return;
-    setIsProcessing(true);
-    if (customerEmail !== "N/A") {
-    } else {
-      console.log(`Email não disponível para o pedido ${orderNumber}.`);
-    }
-    // Simulate client-side action completion
-    setTimeout(() => setIsProcessing(false), 500);
-  };
-
-  const handleGenerateInvoice = (orderId, orderNumber, isDownload = false) => {
-    if (!isClient || isProcessing) return;
-    const order = orders.find((o) => o.id === orderId);
-    if (!order) {
-      console.error(`Erro: Pedido ${orderNumber} não encontrado`);
-      return;
-    }
-    console.log(
-      `${isDownload ? "Baixando" : "Gerando"} fatura para o pedido ${orderNumber}...`,
-    );
-    setShowDevelopmentMessage(true);
-    setTimeout(() => setShowDevelopmentMessage(false), 3000);
-    setIsProcessing(true);
-
-    const formData = new FormData();
-    formData.append(
-      "actionType",
-      isDownload ? "downloadInvoice" : "generateInvoice",
-    );
-    formData.append("order", JSON.stringify(order));
-
-    console.log(
-      `[OrdersTable] Submitting ${isDownload ? "download" : "invoice generation"} for order ${orderNumber} (ID: ${orderId})`,
-      JSON.stringify(order, null, 2),
-    );
-
-    fetcher.submit(formData, { method: "post", action: "/ges-orders" });
-  };
-
-  useEffect(() => {
-    if (fetcher.state === "idle" && fetcher.data) {
-      const { orderId, orderNumber, error, invoiceFile, invoiceNumber } =
-        fetcher.data;
-
-      if (error) {
-        console.error(
-          `[OrdersTable] Error processing order ${orderNumber} (ID: ${orderId}):`,
-          error,
-        );
-        if (isClient) {
-          console.error(
-            `Erro ao ${fetcher.data.actionType === "downloadInvoice" ? "baixar" : "gerar"} fatura para o pedido ${orderNumber}: ${error}`,
-          );
-        }
-        return;
-      }
-
-      setOrders((prevOrders) =>
-        prevOrders.map((order) =>
-          order.id === orderId ? { ...order, invoiceNumber } : order,
-        ),
-      );
-
-      if (isClient) {
-        console.log(
-          `Fatura ${invoiceNumber} ${fetcher.data.actionType === "downloadInvoice" ? "baixada" : "gerada"} com sucesso para o pedido ${orderNumber}!`,
-        );
-
-        if (invoiceFile) {
-          try {
-            const { contentType, data, filename } = invoiceFile;
-            if (!data || typeof data !== "string") {
-              throw new Error("Invalid or missing Base64 data in invoiceFile");
-            }
-
-            const byteCharacters = atob(data);
-            const byteNumbers = new Array(byteCharacters.length);
-            for (let i = 0; i < byteCharacters.length; i++) {
-              byteNumbers[i] = byteCharacters.charCodeAt(i);
-            }
-            const byteArray = new Uint8Array(byteNumbers);
-            const blob = new Blob([byteArray], { type: contentType });
-            const url = window.URL.createObjectURL(blob);
-            const link = document.createElement("a");
-            link.href = url;
-            link.download = filename;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            window.URL.revokeObjectURL(url);
-            console.log(`Download da fatura ${filename} iniciado.`);
-            console.log(
-              `[OrdersTable] Initiated download for invoice ${filename} of order ${orderNumber}`,
-            );
-          } catch (err) {
-            console.error(
-              `[OrdersTable] Failed to process PDF download for order ${orderNumber}: ${err.message}`,
-            );
-            console.error(
-              `Falha ao carregar o documento PDF para o pedido ${orderNumber}.`,
-            );
-          }
-        } else {
-          console.warn(`[OrdersTable] No invoiceFile for order ${orderNumber}`);
-          console.warn(
-            `Fatura ${invoiceNumber} ${fetcher.data.actionType === "downloadInvoice" ? "não baixada" : "gerada"}, mas o PDF não está disponível para o pedido ${orderNumber}.`,
-          );
-        }
-      }
-    }
-  }, [fetcher.data, fetcher.state, isClient]);
-
-  const translateStatus = (status) => (status === "PAID" ? "Pago" : status);
-
-  const goToPage = (page) => {
-    if (page >= 1 && page <= totalPages) {
-      setSearchParams({ page: page.toString() });
-    }
-  };
 
   const generatePagination = () => {
     const pages = [];
@@ -264,6 +329,12 @@ export default function OrdersTable() {
     return parts.join(", ") || "N/A";
   };
 
+  const goToPage = (page) => {
+    if (page >= 1 && page <= totalPages) {
+      setSearchParams({ page: page.toString() });
+    }
+  };
+
   return (
     <Layout>
       <div className="container py-5">
@@ -273,6 +344,13 @@ export default function OrdersTable() {
         </p>
 
         {error && <div className="alert alert-danger">{error}</div>}
+        {showDevelopmentMessage && (
+          <div
+            className={`alert ${fetcher.data?.success ? "alert-success" : "alert-danger"}`}
+          >
+            {message}
+          </div>
+        )}
 
         <div className="mb-4">
           <input
