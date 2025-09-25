@@ -13,6 +13,9 @@ import { json } from "@remix-run/node";
 import { prisma } from "./prisma/client.js";
 import { useEffect } from "react";
 
+// 🔔 Import Sonner
+import { Toaster, toast } from "sonner";
+
 export async function loader() {
   try {
     const login = await prisma.gESlogin.findFirst({
@@ -56,6 +59,9 @@ export default function App() {
         <div className="container mt-5 pt-5">
           <Outlet />
         </div>
+
+        <Toaster richColors position="top-right" />
+
         <ScrollRestoration />
         <Scripts />
       </body>
@@ -74,6 +80,10 @@ export function ErrorBoundary() {
       stack: error?.stack,
       data: error?.data,
     });
+
+    if (typeof window !== "undefined" && error?.message) {
+      toast.error(`Erro: ${error.message}`);
+    }
   }, [error]);
 
   return (
@@ -114,6 +124,9 @@ export function ErrorBoundary() {
             )}
           </div>
         </div>
+
+        <Toaster duration={3000} position="top-right" richColors />
+
         <ScrollRestoration />
         <Scripts />
       </body>
