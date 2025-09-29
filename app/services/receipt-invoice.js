@@ -165,11 +165,17 @@ export async function generateInvoice(order) {
       productId = `item-${index}`; // Fallback to a unique key
     }
 
-    // Safely access discount, default to 0 if discountOnly is undefined or productId not found
-    const totalLineDiscount =
-      discountOnly && discountOnly[productId]
-        ? parseFloat(discountOnly[productId])
-        : 0.0;
+    // Calculate product-specific discount from discountAllocations
+    let totalLineDiscount = 0.0;
+    if (item.discountAllocations?.length > 0) {
+      const discountAmount = item.discountAllocations.reduce((sum, alloc) => {
+        return sum + parseFloat(alloc.allocatedAmountSet.shopMoney.amount || 0);
+      }, 0);
+      totalLineDiscount =
+        (discountAmount / (item.unitPrice * item.quantity)) * 100;
+    } else if (discountOnly && discountOnly[productId]) {
+      totalLineDiscount = parseFloat(discountOnly[productId]) || 0.0;
+    }
 
     const line = {
       id: parseInt(productResult.productId),
