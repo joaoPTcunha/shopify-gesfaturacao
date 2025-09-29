@@ -10,88 +10,158 @@ import { sendEmail } from "../services/sendEmail";
 export async function loader() {
   try {
     const query = `
-      query {
-        orders(first: 250, sortKey: CREATED_AT, reverse: true, query: "financial_status:PAID") {
-          edges {
-            node {
-              id
-              name
-              createdAt
-              totalPriceSet {
+  query {
+    orders(first: 250, sortKey: CREATED_AT, reverse: true, query: "financial_status:PAID") {
+      edges {
+        node {
+          id
+          name
+          createdAt
+          totalPriceSet {
+            shopMoney {
+              amount
+              currencyCode
+            }
+          }
+          totalDiscountsSet {
+            shopMoney {
+              amount
+              currencyCode
+            }
+          }
+          displayFinancialStatus
+          customer {
+            id
+            firstName
+            lastName
+            email
+            metafields(first: 5, namespace: "custom") {
+              edges {
+                node {
+                  key
+                  value
+                }
+              }
+            }
+          }
+          lineItems(first: 50) {
+            edges {
+              node {
+                title
+                quantity
+                product {
+                  id
+                }
+                originalUnitPriceSet {
+                  shopMoney {
+                    amount
+                    currencyCode
+                  }
+                }
+                discountAllocations {
+                  allocatedAmountSet {
+                    shopMoney {
+                      amount
+                      currencyCode
+                    }
+                  }
+                }
+                taxLines {
+                  priceSet {
+                    shopMoney {
+                      amount
+                      currencyCode
+                    }
+                  }
+                  rate
+                  ratePercentage
+                  title
+                }
+              }
+            }
+          }
+          discountApplications(first: 10) {
+            edges {
+              node {
+                targetType
+                targetSelection
+                allocationMethod
+                value {
+                  __typename
+                  ... on MoneyV2 {
+                    amount
+                    currencyCode
+                  }
+                  ... on PricingPercentageValue {
+                    percentage
+                  }
+                }
+              }
+            }
+          }
+          metafields(first: 1, namespace: "invoicing") {
+            edges {
+              node {
+                key
+                value
+              }
+            }
+          }
+          shippingAddress {
+            name
+            company
+            address1
+            address2
+            city
+            province
+            country
+            zip
+            phone
+          }
+          billingAddress {
+            name
+            company
+            address1
+            address2
+            city
+            province
+            country
+            zip
+            phone
+          }
+          note
+          paymentGatewayNames
+          shippingLine {
+            title
+            originalPriceSet {
+              shopMoney {
+                amount
+                currencyCode
+              }
+            }
+            discountedPriceSet {
+              shopMoney {
+                amount
+                currencyCode
+              }
+            }
+            taxLines {
+              priceSet {
                 shopMoney {
                   amount
                   currencyCode
                 }
               }
-              displayFinancialStatus
-              customer {
-                id
-                firstName
-                lastName
-                email
-                metafields(first: 5, namespace: "custom") {
-                  edges {
-                    node {
-                      key
-                      value
-                    }
-                  }
-                }
-              }
-              lineItems(first: 5) {
-                edges {
-                  node {
-                    title
-                    quantity
-                    product {
-                      id
-                    }
-                    originalUnitPriceSet {
-                      shopMoney {
-                        amount
-                        currencyCode
-                      }
-                    }
-                  }
-                }
-              }
-              metafields(first: 1, namespace: "invoicing") {
-                edges {
-                  node {
-                    key
-                    value
-                  }
-                }
-              }
-              shippingAddress {
-                address1
-                address2
-                city
-                province
-                country
-                zip
-                phone
-              }
-              billingAddress {
-                address1
-                address2
-                city
-                province
-                country
-                zip
-                phone
-              }
-              note
-              paymentGatewayNames
-              shippingLine {
-                title
-                price
-              }
+              rate
+              ratePercentage
+              title
             }
           }
         }
       }
-    `;
+    }
+  }
+  `;
 
     const response = await fetch(
       `https://${process.env.SHOPIFY_STORE_DOMAIN}/admin/api/${process.env.API_VERSION}/graphql.json`,
@@ -146,7 +216,10 @@ export async function loader() {
           unitPrice: parseFloat(
             item.originalUnitPriceSet?.shopMoney?.amount || 0,
           ),
+          taxLines: item.taxLines || [],
+          discountAllocations: item.discountAllocations || [],
         })) || [],
+      discountApplications: node.discountApplications?.edges || [],
       shippingAddress: node.shippingAddress
         ? {
             address1: node.shippingAddress.address1 || "N/A",
@@ -174,7 +247,15 @@ export async function loader() {
       shippingLine: node.shippingLine
         ? {
             title: node.shippingLine.title || "N/A",
-            price: parseFloat(node.shippingLine.price || 0),
+            price: parseFloat(
+              node.shippingLine.discountedPriceSet?.shopMoney?.amount ||
+                node.shippingLine.originalPriceSet?.shopMoney?.amount ||
+                0,
+            ),
+            originalPrice: parseFloat(
+              node.shippingLine.originalPriceSet?.shopMoney?.amount || 0,
+            ),
+            taxLines: node.shippingLine.taxLines || [],
           }
         : null,
     }));
@@ -324,7 +405,7 @@ export async function action({ request }) {
       const invoiceFile = await downloadInvoicePDF(
         apiUrl,
         login.token,
-        existingInvoice.invoice_id,
+        existing年齢invoice.invoice_id,
       );
 
       return json({

@@ -1,10 +1,6 @@
 import { URLSearchParams } from "url";
 
 export async function sendEmail({ id, type, email, expired, apiUrl, token }) {
-  console.log(
-    `[sendEmail] Sending email for invoice ID ${id} to ${email} (type: ${type}, expired: ${expired})`,
-  );
-
   if (!id || !type || !email || expired === undefined) {
     throw new Error(
       `Missing required parameters: id=${id}, type=${type}, email=${email}, expired=${expired}`,
@@ -34,7 +30,6 @@ export async function sendEmail({ id, type, email, expired, apiUrl, token }) {
     });
 
     const responseText = await response.text();
-    console.log(`[sendEmail] API Response for invoice ID ${id}:`, responseText);
 
     let result;
     try {

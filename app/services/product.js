@@ -1,119 +1,6 @@
 import prisma from "../../prisma/client";
 
-/**
- * Fetch stock quantity from Shopify using GraphQL
- */
-export async function fetchShopifyStockQuantity(
-  productId,
-  variantId,
-  loginToken,
-) {
-  console.log(
-    `[fetchShopifyStockQuantity] Fetching stock for productId: ${productId}, variantId: ${variantId || "N/A"}`,
-  );
-
-  const shopifyStoreUrl =
-    "https://your-shopify-store.myshopify.com/admin/api/2025-01/graphql.json";
-
-  const query = `
-    query ($productId: ID!, $variantId: ID) {
-      product(id: $productId) {
-        variants(first: 10) {
-          edges {
-            node {
-              id
-              inventoryItem {
-                inventoryLevel(locationId: "gid://shopify/Location/YOUR_LOCATION_ID") {
-                  available
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-  `;
-
-  const variables = {
-    productId: `gid://shopify/Product/${productId.replace("gid://shopify/Product/", "")}`,
-    variantId: variantId || null,
-  };
-
-  try {
-    const response = await fetch(shopifyStoreUrl, {
-      method: "POST",
-      headers: {
-        "X-Shopify-Access-Token": loginToken,
-        Accept: "application/json",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ query, variables }),
-    });
-
-    if (!response.ok) {
-      console.error(
-        `[fetchShopifyStockQuantity] Shopify GraphQL request failed: ${response.statusText}`,
-      );
-      throw new Error(`Shopify GraphQL request failed: ${response.statusText}`);
-    }
-
-    const responseData = await response.json();
-    console.log(
-      `[fetchShopifyStockQuantity] GraphQL response:`,
-      JSON.stringify(responseData, null, 2),
-    );
-
-    if (responseData.errors) {
-      console.error(
-        `[fetchShopifyStockQuantity] GraphQL errors: ${JSON.stringify(responseData.errors)}`,
-      );
-      return 0;
-    }
-
-    const variants = responseData.data?.product?.variants?.edges || [];
-    let stockQuantity = 0;
-
-    if (variantId) {
-      const targetVariant = variants.find((v) => v.node.id === variantId);
-      if (targetVariant) {
-        stockQuantity =
-          targetVariant.node.inventoryItem?.inventoryLevel?.available || 0;
-      } else {
-        console.error(
-          `[fetchShopifyStockQuantity] Variant ${variantId} not found for product ${productId}`,
-        );
-      }
-    } else {
-      // Sum stock across all variants if no specific variantId is provided
-      stockQuantity = variants.reduce(
-        (total, v) =>
-          total + (v.node.inventoryItem?.inventoryLevel?.available || 0),
-        0,
-      );
-    }
-
-    console.log(`[fetchShopifyStockQuantity] Stock quantity: ${stockQuantity}`);
-    return stockQuantity;
-  } catch (error) {
-    console.error(
-      `[fetchShopifyStockQuantity] Failed to fetch stock: ${error.message}`,
-    );
-    return 0; // fallback
-  }
-}
-
-/**
- * Create or fetch product from GESfaturacao based on Shopify order line item
- */
 export async function fetchProductDataFromOrder(order, lineItem) {
-  console.log(
-    `[fetchProductDataFromOrder] Processing product for order ${order.orderNumber}`,
-  );
-  console.log(
-    `[fetchProductDataFromOrder] Line item:`,
-    JSON.stringify(lineItem, null, 2),
-  );
-
   if (!lineItem.title || !lineItem.unitPrice || !lineItem.productId) {
     throw new Error("Missing product title, unit price, or product ID");
   }
@@ -134,14 +21,10 @@ export async function fetchProductDataFromOrder(order, lineItem) {
 
   // Fetch stock quantity from Shopify
   const stockQuantity = lineItem.quantity;
-  console.log(
-    `[fetchProductDataFromOrder] Stock quantity for product ${lineItem.productId}: ${stockQuantity}`,
-  );
 
   const productId = lineItem.productId.replace("gid://shopify/Product/", "");
   const productCode = `sho${productId}`;
   const searchUrl = `${apiUrl}products/code/${encodeURIComponent(productCode)}`;
-  console.log(`[fetchProductDataFromOrder] Checking product: ${searchUrl}`);
 
   let searchResponse;
   try {
@@ -158,9 +41,6 @@ export async function fetchProductDataFromOrder(order, lineItem) {
   }
 
   const searchResponseText = await searchResponse.text();
-  console.log(
-    `[fetchProductDataFromOrder] Search response: ${searchResponseText}`,
-  );
 
   let searchResponseBody = {};
   try {
@@ -193,7 +73,7 @@ export async function fetchProductDataFromOrder(order, lineItem) {
       (t) =>
         t.region === (orderCountry === "Portugal" ? "PT" : orderCountry) &&
         t.value === defaultTaxRate,
-    ) || taxRates.find((t) => t.id === "1"); // fallback -> Normal 23%
+    ) || taxRates.find((t) => t.id === "1");
 
   const taxRatePercentage = parseFloat(tax.value) / 100;
   const unitPriceExcludingVat = lineItem.unitPrice / (1 + taxRatePercentage);
@@ -208,8 +88,6 @@ export async function fetchProductDataFromOrder(order, lineItem) {
         err.code === "PV_CODE_11",
     )
   ) {
-    console.log(`[fetchProductDataFromOrder] Product not found, creating...`);
-
     const createUrl = `${apiUrl}products`;
     const productData = {
       name: lineItem.title,
@@ -239,9 +117,6 @@ export async function fetchProductDataFromOrder(order, lineItem) {
     });
 
     const createResponseText = await createResponse.text();
-    console.log(
-      `[fetchProductDataFromOrder] Create response: ${createResponseText}`,
-    );
 
     if (!createResponse.ok) {
       throw new Error(`Product creation failed: ${createResponseText}`);

@@ -49,19 +49,26 @@ export async function fetchShippingProductData(order, apiUrl, token) {
     );
 
     const shippingTaxId = shippingProduct.data?.tax?.id || 1;
+    const shippingTaxRate =
+      order.shippingLine?.taxLines?.[0]?.ratePercentage || 23.0;
+    const shippingPriceWithVat = parseFloat(order.shippingLine.price);
+    const shippingPriceExclTax = parseFloat(
+      (shippingPriceWithVat / (1 + shippingTaxRate / 100.0)).toFixed(3),
+    );
     const shippingDescription =
-      shippingProduct.data?.description || "Nome Não Encontrado";
+      shippingProduct.data?.description || "Custos de Envio";
 
     return {
       lineItem: {
         id: parseInt(login.id_product_shipping),
         tax: shippingTaxId,
         quantity: 1,
-        price: order.shippingLine.price,
+        price: shippingPriceExclTax,
         description: shippingDescription,
         discount: 0,
         retention: 0,
         exemption_reason: shippingTaxId === 4 ? "M01" : "",
+        type: "S",
       },
       productResult: {
         title: shippingDescription,

@@ -1,5 +1,6 @@
+// OrdersTable.jsx
 import { useLoaderData, useSearchParams, useFetcher } from "@remix-run/react";
-import { useState, useMemo, useEffect, useRef } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { toast } from "sonner";
 import Layout from "./Layout";
 
@@ -12,10 +13,9 @@ export default function OrdersTable() {
   const [searchTerm, setSearchTerm] = useState("");
   const [isClient, setIsClient] = useState(false);
   const [showDevelopmentMessage, setShowDevelopmentMessage] = useState(false);
-  const [message, setMessage] = useState("");
+  const [message, setMessage] = useState(""); // Added to store success/error message
   const [isProcessing, setIsProcessing] = useState(false);
   const fetcher = useFetcher();
-  const prevFetcherDataRef = useRef(null);
 
   useEffect(() => {
     setIsClient(true);
@@ -26,12 +26,7 @@ export default function OrdersTable() {
       setIsProcessing(false);
     }
 
-    if (
-      fetcher.state === "idle" &&
-      fetcher.data &&
-      fetcher.data !== prevFetcherDataRef.current
-    ) {
-      prevFetcherDataRef.current = fetcher.data;
+    if (fetcher.state === "idle" && fetcher.data) {
       const {
         orderId,
         orderNumber,
@@ -40,9 +35,14 @@ export default function OrdersTable() {
         invoiceFile,
         invoiceNumber,
         actionType,
+        emailSent,
       } = fetcher.data;
 
       if (error) {
+        console.error(
+          `[OrdersTable] Error processing order ${orderNumber} (ID: ${orderId}):`,
+          error,
+        );
         let errorMessage = `Erro ao ${
           actionType === "downloadInvoice"
             ? "baixar"
@@ -52,7 +52,6 @@ export default function OrdersTable() {
         } fatura para o pedido ${orderNumber}: ${error}`;
 
         if (isClient) {
-          toast.error(errorMessage, { duration: 5000 });
           setMessage(errorMessage);
           setShowDevelopmentMessage(true);
           setTimeout(() => setShowDevelopmentMessage(false), 5000);
@@ -64,7 +63,6 @@ export default function OrdersTable() {
         if (isClient) {
           toast.success(
             `Email enviado com sucesso para o pedido ${orderNumber}!`,
-            { duration: 3000 },
           );
         }
       }
@@ -79,55 +77,53 @@ export default function OrdersTable() {
           ),
         );
 
-        if (isClient && invoiceFile) {
-          try {
-            const { contentType, data, filename } = invoiceFile;
-            if (!data || typeof data !== "string") {
-              throw new Error("Invalid or missing Base64 data in invoiceFile");
-            }
+        if (isClient) {
+          console.log(
+            `Fatura ${invoiceNumber} ${actionType === "downloadInvoice" ? "baixada" : "gerada"} com sucesso para o pedido ${orderNumber}!`,
+          );
 
-            const byteCharacters = atob(data);
-            const byteNumbers = new Array(byteCharacters.length);
-            for (let i = 0; i < byteCharacters.length; i++) {
-              byteNumbers[i] = byteCharacters.charCodeAt(i);
+          if (invoiceFile) {
+            try {
+              const { contentType, data, filename } = invoiceFile;
+              if (!data || typeof data !== "string") {
+                throw new Error(
+                  "Invalid or missing Base64 data in invoiceFile",
+                );
+              }
+
+              const byteCharacters = atob(data);
+              const byteNumbers = new Array(byteCharacters.length);
+              for (let i = 0; i < byteCharacters.length; i++) {
+                byteNumbers[i] = byteCharacters.charCodeAt(i);
+              }
+              const byteArray = new Uint8Array(byteNumbers);
+              const blob = new Blob([byteArray], { type: contentType });
+              const url = window.URL.createObjectURL(blob);
+              const link = document.createElement("a");
+              link.href = url;
+              link.download = filename;
+              document.body.appendChild(link);
+              link.click();
+              document.body.removeChild(link);
+              window.URL.revokeObjectURL(url);
+              console.log(`Download da fatura ${filename} iniciado.`);
+            } catch (err) {
+              console.error(
+                `[OrdersTable] Failed to process PDF download for order ${orderNumber}: ${err.message}`,
+              );
+              setMessage(
+                `Falha ao carregar o documento PDF para o pedido ${orderNumber}.`,
+              );
+              setShowDevelopmentMessage(true);
+              setTimeout(() => setShowDevelopmentMessage(false), 5000);
             }
-            const byteArray = new Uint8Array(byteNumbers);
-            const blob = new Blob([byteArray], { type: contentType });
-            const url = window.URL.createObjectURL(blob);
-            const link = document.createElement("a");
-            link.href = url;
-            link.download = filename;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            window.URL.revokeObjectURL(url);
-            toast.success(
-              `Fatura ${invoiceNumber} ${
-                actionType === "downloadInvoice" ? "baixada" : "gerada"
-              } com sucesso para o pedido ${orderNumber}!`,
-              { duration: 3000 },
-            );
-          } catch (err) {
-            toast.error(
-              `Falha ao carregar o documento PDF para o pedido ${orderNumber}.`,
-              { duration: 5000 },
-            );
+          } else if (actionType === "generateInvoice") {
             setMessage(
-              `Falha ao carregar o documento PDF para o pedido ${orderNumber}.`,
+              `Fatura ${invoiceNumber} gerada com sucesso para o pedido ${orderNumber}!`,
             );
             setShowDevelopmentMessage(true);
-            setTimeout(() => setShowDevelopmentMessage(false), 5000);
+            setTimeout(() => setShowDevelopmentMessage(false), 3000);
           }
-        } else if (isClient && actionType === "generateInvoice") {
-          toast.success(
-            `Fatura ${invoiceNumber} gerada com sucesso para o pedido ${orderNumber}!`,
-            { duration: 3000 },
-          );
-          setMessage(
-            `Fatura ${invoiceNumber} gerada com sucesso para o pedido ${orderNumber}!`,
-          );
-          setShowDevelopmentMessage(true);
-          setTimeout(() => setShowDevelopmentMessage(false), 3000);
         }
       }
     }
@@ -147,9 +143,7 @@ export default function OrdersTable() {
 
     const order = orders.find((o) => o.id === orderId);
     if (!order || !order.invoiceNumber || order.invoiceNumber === "N/A") {
-      toast.error(`Fatura não encontrada para o pedido ${orderNumber}.`, {
-        duration: 3000,
-      });
+      console.error(`Fatura não encontrada para o pedido ${orderNumber}`);
       setMessage(`Fatura não encontrada para o pedido ${orderNumber}.`);
       setShowDevelopmentMessage(true);
       setTimeout(() => setShowDevelopmentMessage(false), 3000);
@@ -158,9 +152,7 @@ export default function OrdersTable() {
     }
 
     if (customerEmail === "N/A") {
-      toast.error(`Email não disponível para o pedido ${orderNumber}.`, {
-        duration: 3000,
-      });
+      console.log(`Email não disponível para o pedido ${orderNumber}.`);
       setMessage(`Email não disponível para o pedido ${orderNumber}.`);
       setShowDevelopmentMessage(true);
       setTimeout(() => setShowDevelopmentMessage(false), 3000);
@@ -175,6 +167,11 @@ export default function OrdersTable() {
     formData.append("customerEmail", customerEmail);
     formData.append("invoiceNumber", order.invoiceNumber);
 
+    console.log(
+      `[OrdersTable] Submitting sendEmail for order ${orderNumber} (ID: ${orderId})`,
+      { customerEmail, invoiceNumber: order.invoiceNumber },
+    );
+
     fetcher.submit(formData, { method: "post", action: "/ges-orders" });
   };
 
@@ -182,19 +179,16 @@ export default function OrdersTable() {
     if (!isClient || isProcessing) return;
     const order = orders.find((o) => o.id === orderId);
     if (!order) {
-      toast.error(`Erro: Pedido ${orderNumber} não encontrado`, {
-        duration: 3000,
-      });
+      console.error(`Erro: Pedido ${orderNumber} não encontrado`);
       setMessage(`Erro: Pedido ${orderNumber} não encontrado`);
       setShowDevelopmentMessage(true);
       setTimeout(() => setShowDevelopmentMessage(false), 3000);
       return;
     }
-    setIsProcessing(true);
-    toast.info(
+    console.log(
       `${isDownload ? "Baixando" : "Gerando"} fatura para o pedido ${orderNumber}...`,
-      { duration: 2000 },
     );
+    setIsProcessing(true);
 
     const formData = new FormData();
     formData.append(
@@ -202,6 +196,11 @@ export default function OrdersTable() {
       isDownload ? "downloadInvoice" : "generateInvoice",
     );
     formData.append("order", JSON.stringify(order));
+
+    console.log(
+      `[OrdersTable] Submitting ${isDownload ? "download" : "invoice generation"} for order ${orderNumber} (ID: ${orderId})`,
+      JSON.stringify(order, null, 2),
+    );
 
     fetcher.submit(formData, { method: "post", action: "/ges-orders" });
   };
@@ -632,7 +631,7 @@ export default function OrdersTable() {
                             <tr>
                               <th>Produto</th>
                               <th>Quantidade</th>
-                              <th>Preço c/Iva</th>
+                              <th>Preço Unitário</th>
                               <th>Total</th>
                             </tr>
                           </thead>

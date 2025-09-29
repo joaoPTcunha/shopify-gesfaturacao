@@ -5,7 +5,6 @@ export async function downloadInvoicePDF(apiUrl, token, invoiceId) {
   }
 
   const downloadEndpoint = `${apiUrl}sales/documents/${invoiceId}/type/FR`;
-  console.log(`[downloadInvoicePDF] Fetching PDF from: ${downloadEndpoint}`);
   try {
     const downloadResponse = await fetch(downloadEndpoint, {
       method: "GET",

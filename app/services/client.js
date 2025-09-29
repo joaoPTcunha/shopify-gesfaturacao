@@ -16,7 +16,6 @@ export async function fetchClientDataFromOrder(order) {
     );
   }
 
-  // Normalize name to remove accents and special characters
   const normalizeName = (name) => {
     if (!name || name === "N/A") return "";
     return name
@@ -27,7 +26,6 @@ export async function fetchClientDataFromOrder(order) {
       .trim();
   };
 
-  // Format phone number to remove country code and ensure 9 digits
   const formatPhoneNumber = (phone) => {
     if (!phone || phone === "N/A") return "";
     const cleaned = phone.replace(/^\+\d{1,3}\s?/, "").replace(/\D/g, "");
@@ -74,15 +72,6 @@ export async function fetchClientDataFromOrder(order) {
     taxExempt: order.customer?.taxExempt || false,
     acceptsMarketing: order.customer?.acceptsMarketing || false,
   };
-
-  console.log(
-    `[fetchClientDataFromOrder] customerMetafields:`,
-    JSON.stringify(order.customerMetafields, null, 2),
-  );
-  console.log(
-    `[fetchClientDataFromOrder] Extracted taxId: ${customerData.taxId}, name: ${customerData.name}, company: ${customerData.company}`,
-  );
-
   customerData.name =
     customerData.company !== "N/A" ? customerData.company : customerData.name;
 
@@ -105,11 +94,7 @@ export async function fetchClientDataFromOrder(order) {
   let apiUrl = login.dom_licenca;
   if (!apiUrl.endsWith("/")) apiUrl += "/";
 
-  // Check if client exists in GESfaturacao
   if (customerData.taxId === "N/A" || customerData.name === "N/A") {
-    console.error(
-      `[fetchClientDataFromOrder] Skipping client search for order ${order.orderNumber} due to missing TIN or name`,
-    );
     throw new Error("Missing TIN or name for client search");
   }
 
@@ -125,10 +110,6 @@ export async function fetchClientDataFromOrder(order) {
   for (const searchName of searchNames) {
     const normalizedSearchName = normalizeName(searchName);
     const searchUrl = `${apiUrl}clients/tin/search/${encodeURIComponent(customerData.taxId)}/${encodeURIComponent(normalizedSearchName)}`;
-    console.log(
-      `[fetchClientDataFromOrder] Checking client existence with taxId: ${customerData.taxId}, name: ${normalizedSearchName}, URL: ${searchUrl}`,
-    );
-
     let searchResponse;
     try {
       searchResponse = await fetch(searchUrl, {
@@ -143,26 +124,15 @@ export async function fetchClientDataFromOrder(order) {
       console.error(
         `[fetchClientDataFromOrder] Fetch failed for search: ${fetchError.message}`,
       );
-      continue; // Try next name if search fails
+      continue;
     }
 
     let searchResponseText;
     try {
       searchResponseText = await searchResponse.text();
-      console.log(
-        `[fetchClientDataFromOrder] Raw search response text for order ${order.orderNumber}:`,
-        searchResponseText,
-      );
     } catch (textError) {
-      console.error(
-        `[fetchClientDataFromOrder] Failed to read search response text: ${textError.message}`,
-      );
       continue;
     }
-
-    console.log(
-      `[fetchClientDataFromOrder] GESfaturacao search response status: ${searchResponse.status}, headers: ${JSON.stringify([...searchResponse.headers])}, body: ${searchResponseText}`,
-    );
 
     let searchResponseBody;
     try {
@@ -177,14 +147,7 @@ export async function fetchClientDataFromOrder(order) {
 
     if (searchResponse.ok) {
       const client = searchResponseBody;
-      console.log(
-        `[fetchClientDataFromOrder] Client found for order ${order.orderNumber}:`,
-        JSON.stringify(client, null, 2),
-      );
       if (!client.data?.id && !client.id) {
-        console.error(
-          `[fetchClientDataFromOrder] Client ID missing in search response for order ${order.orderNumber}`,
-        );
         continue;
       }
       clientId = client.data?.id || client.id;
@@ -201,11 +164,6 @@ export async function fetchClientDataFromOrder(order) {
       status: clientStatus,
     };
   }
-
-  // If client not found, attempt to create
-  console.log(
-    `[fetchClientDataFromOrder] Client not found for order ${order.orderNumber}, attempting to create`,
-  );
 
   const createUrl = `${apiUrl}clients`;
   const formattedPhone = formatPhoneNumber(customerData.phone);
@@ -259,11 +217,6 @@ export async function fetchClientDataFromOrder(order) {
     comments: order.note || "",
   };
 
-  console.log(
-    `[fetchClientDataFromOrder] Creating client for order ${order.orderNumber}:`,
-    JSON.stringify(clientData, null, 2),
-  );
-
   let createResponse;
   try {
     createResponse = await fetch(createUrl, {
@@ -285,13 +238,6 @@ export async function fetchClientDataFromOrder(order) {
   let createResponseText;
   try {
     createResponseText = await createResponse.text();
-    console.log(
-      `[fetchClientDataFromOrder] Raw create response text for order ${order.orderNumber}:`,
-      createResponseText,
-    );
-    console.log(
-      `[fetchClientDataFromOrder] GESfaturacao create response headers: ${JSON.stringify([...createResponse.headers])}`,
-    );
   } catch (textError) {
     console.error(
       `[fetchClientDataFromOrder] Failed to read create response text: ${textError.message}`,
@@ -299,23 +245,13 @@ export async function fetchClientDataFromOrder(order) {
     throw new Error(`Failed to read create response: ${textError.message}`);
   }
 
-  console.log(
-    `[fetchClientDataFromOrder] GESfaturacao create response status: ${createResponse.status}, body: ${createResponseText}`,
-  );
-
   if (createResponse.ok) {
     try {
       if (!createResponseText) {
-        console.error(
-          `[fetchClientDataFromOrder] Empty create response body for order ${order.orderNumber}`,
-        );
         throw new Error("Empty response from GESfaturacao create");
       }
       const newClient = JSON.parse(createResponseText);
-      console.log(
-        `[fetchClientDataFromOrder] Client created for order ${order.orderNumber}:`,
-        JSON.stringify(newClient, null, 2),
-      );
+
       if (!newClient.data?.id && !newClient.id) {
         console.error(
           `[fetchClientDataFromOrder] Client ID missing in create response for order ${order.orderNumber}`,
@@ -352,16 +288,9 @@ export async function fetchClientDataFromOrder(order) {
       createResponseBody.errors &&
       createResponseBody.errors.some((err) => err.code === "CLV_VAT_10")
     ) {
-      console.log(
-        `[fetchClientDataFromOrder] VAT number not unique for order ${order.orderNumber}, attempting retry search`,
-      );
-
       for (const searchName of searchNames) {
         const normalizedSearchName = normalizeName(searchName);
         const retrySearchUrl = `${apiUrl}clients/tin/search/${encodeURIComponent(customerData.taxId)}/${encodeURIComponent(normalizedSearchName)}`;
-        console.log(
-          `[fetchClientDataFromOrder] Retry search with taxId: ${customerData.taxId}, name: ${normalizedSearchName}, URL: ${retrySearchUrl}`,
-        );
 
         let retrySearchResponse;
         try {

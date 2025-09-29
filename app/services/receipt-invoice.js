@@ -1,14 +1,38 @@
-// app/services/receipt-invoice.js
-
+// receipt-invoice.js
 import prisma from "../../prisma/client";
 import { fetchClientDataFromOrder } from "./client";
 import { fetchProductDataFromOrder } from "./product";
 import { fetchShippingProductData } from "./shipping";
 import { sendEmail } from "./sendEmail";
+import { fetchDiscountProductData } from "./discountProduct";
+import { getOrderDiscounts } from "./discountOrder";
+
+// Helper function to safely extract monetary value
+function getMonetaryValue(value, fieldName = "unknown") {
+  if (value === null || value === undefined) {
+    console.warn(
+      `[generateInvoice] ${fieldName} is null or undefined, defaulting to 0`,
+    );
+    return 0;
+  }
+  if (typeof value === "object" && "amount" in value) {
+    return parseFloat(value.amount) || 0;
+  }
+  if (typeof value === "string" || typeof value === "number") {
+    return parseFloat(value) || 0;
+  }
+  console.warn(
+    `[generateInvoice] Invalid ${fieldName} format: ${JSON.stringify(value)}, defaulting to 0`,
+  );
+  return 0;
+}
 
 export async function generateInvoice(order) {
   console.log(
     `[generateInvoice] Processing invoice for order ${order.orderNumber} (ID: ${order.id})`,
+  );
+  console.log(
+    `[generateInvoice] Order data: ${JSON.stringify(order, null, 2)}`,
   );
 
   if (!order.id || !order.orderNumber) {
@@ -49,7 +73,7 @@ export async function generateInvoice(order) {
 
   if (existingInvoice) {
     console.log(
-      `[generateInvoice] Found existing invoice ${existingInvoice.invoice_number} (status: ${existingInvoice.invoice_status}) for order ${order.orderNumber}. Deleting and generating new invoice.`,
+      `[generateInvoice] Deleting existing invoice ${existingInvoice.invoice_number} for order ${order.orderNumber}`,
     );
     await prisma.gESinvoices.delete({ where: { id: existingInvoice.id } });
   }
@@ -86,9 +110,14 @@ export async function generateInvoice(order) {
 
   const taxMap = { 23: 1, 13: 2, 6: 3, 0: 4 };
 
-  // Prepare line items
+  // Calculate line items (no product-specific discounts)
   const lines = [];
   const productResults = [];
+  const orderCountry = order.shippingAddress?.country || "Portugal";
+  const defaultTaxRate = orderCountry === "Portugal" ? 23 : 0;
+  let totalBaseExclTax = 0.0;
+  let totalTax = 0.0;
+
   for (const [index, item] of order.lineItems.entries()) {
     if (!item.title || !item.unitPrice || !item.productId) {
       throw new Error(
@@ -103,25 +132,33 @@ export async function generateInvoice(order) {
       );
     }
 
-    const productTaxId = taxMap[item.taxRate || 23] || 1;
-    const orderCountry = order.shippingAddress?.country || "Portugal";
-    const taxRate = orderCountry === "Portugal" ? item.taxRate || 23.0 : 0.0;
+    // Determine tax rate
+    const taxRate = item.taxLines?.[0]?.rate
+      ? item.taxLines[0].rate * 100
+      : defaultTaxRate;
+    const productTaxId = taxMap[taxRate] || 1;
 
-    // Convert unitPrice (with VAT) to exclude VAT
-    const unitPriceExclTax = parseFloat(
-      (item.unitPrice / (1 + taxRate / 100.0)).toFixed(3),
-    );
+    // Calculate price excluding VAT
+    const unitPriceExclTax = item.unitPrice / (1 + taxRate / 100);
+    const roundedUnitPrice = parseFloat(unitPriceExclTax.toFixed(3));
+
+    const lineSubtotalExclTax = roundedUnitPrice * item.quantity;
+    const lineTax = lineSubtotalExclTax * (taxRate / 100);
 
     lines.push({
       id: parseInt(productResult.productId),
       tax: productTaxId,
       quantity: item.quantity,
-      price: unitPriceExclTax, // Send price excluding VAT
+      price: roundedUnitPrice,
       description: item.title.substring(0, 100),
-      discount: 0,
+      discount: 0, // No product-specific discounts
       retention: 0,
       exemption_reason: productTaxId === 4 ? "M01" : "",
+      type: "P",
     });
+
+    totalBaseExclTax += lineSubtotalExclTax;
+    totalTax += lineTax;
 
     productResults.push({
       title: item.title,
@@ -131,43 +168,122 @@ export async function generateInvoice(order) {
     });
 
     console.log(
-      `[generateInvoice] Line item: ${item.title} | Price (with VAT): ${item.unitPrice} | Tax Rate: ${taxRate}% | Price (excl. VAT): ${unitPriceExclTax} | Quantity: ${item.quantity}`,
+      `[generateInvoice] Line item: ${item.title} | Price (with VAT): ${item.unitPrice} | Tax Rate: ${taxRate}% | Price (excl. VAT): ${roundedUnitPrice} | Quantity: ${item.quantity} | Subtotal (excl. VAT): ${lineSubtotalExclTax} | Tax: ${lineTax}`,
     );
   }
 
   // Add shipping line item
+  let shippingTaxRate = defaultTaxRate;
+  let shippingPriceExclTax = 0;
+  let originalShippingExclTax = 0;
+
   const shippingData = await fetchShippingProductData(
     order,
     apiUrl,
     login.token,
   );
   if (shippingData) {
-    const shippingTaxRate =
-      order.shippingLine?.taxLines?.[0]?.ratePercentage || 23.0;
+    const shippingItem = {
+      unitPrice: getMonetaryValue(
+        order.shippingLine?.originalPrice || order.shippingLine?.price,
+        "shippingLine",
+      ),
+      quantity: 1,
+    };
+
+    shippingTaxRate = order.shippingLine?.taxLines?.[0]?.rate
+      ? order.shippingLine.taxLines[0].rate * 100
+      : defaultTaxRate;
     const shippingTaxId = taxMap[shippingTaxRate] || 1;
-    const shippingPriceWithVat = parseFloat(order.shippingLine?.price || 0);
-    const shippingPriceExclTax = parseFloat(
-      (shippingPriceWithVat / (1 + shippingTaxRate / 100.0)).toFixed(3),
-    );
+
+    // Check for free shipping discount
+    const isFreeShipping =
+      order.discountApplications?.some((app) => {
+        const value = app.node.value;
+        const typename = value.__typename;
+        return (
+          app.node.targetType === "SHIPPING_LINE" &&
+          app.node.targetSelection === "ALL" &&
+          ((typename === "PricingPercentageValue" &&
+            value.percentage === 100) ||
+            (typename === "MoneyV2" &&
+              parseFloat(value.amount) === order.shippingLine.originalPrice))
+        );
+      }) || false;
+
+    if (isFreeShipping) {
+      originalShippingExclTax =
+        shippingItem.unitPrice / (1 + shippingTaxRate / 100);
+      shippingPriceExclTax = 0;
+      console.log(
+        `[generateInvoice] Free shipping detected. Original shipping (excl. VAT): ${originalShippingExclTax}`,
+      );
+    } else {
+      originalShippingExclTax =
+        shippingItem.unitPrice / (1 + shippingTaxRate / 100);
+      shippingPriceExclTax = parseFloat(originalShippingExclTax.toFixed(3));
+    }
 
     const shippingLine = {
       id: parseInt(shippingData.lineItem.id),
       tax: shippingTaxId,
       quantity: 1,
-      price: shippingPriceExclTax, // Send shipping price excluding VAT
+      price: shippingPriceExclTax,
       description: shippingData.lineItem.description || "Custos de Envio",
-      discount: 0,
+      discount: isFreeShipping ? 100 : 0, // Apply 100% discount for free shipping
       retention: 0,
       exemption_reason: shippingTaxRate === 0 ? "M01" : "",
+      type: "S",
     };
 
     lines.push(shippingLine);
     productResults.push(shippingData.productResult);
 
+    const shippingTax = shippingPriceExclTax * (shippingTaxRate / 100);
+    totalBaseExclTax += shippingPriceExclTax;
+    totalTax += shippingTax;
+
     console.log(
-      `[generateInvoice] Shipping line: Price (with VAT): ${shippingPriceWithVat} | Tax Rate: ${shippingTaxRate}% | Price (excl. VAT): ${shippingPriceExclTax}`,
+      `[generateInvoice] Shipping line: Price (excl. VAT): ${shippingPriceExclTax} | Tax Rate: ${shippingTaxRate}% | Discount: ${isFreeShipping ? 100 : 0}% | Tax: ${shippingTax}`,
     );
   }
+
+  // Calculate general discount
+  const discountOrderData = await getOrderDiscounts(order);
+  const adjustedGlobalPercent = discountOrderData.discountPercent || 0;
+  const totalDiscountExclTax = discountOrderData.discountAmount || 0;
+  let observations = order.note === "N/A" ? "" : order.note;
+
+  if (adjustedGlobalPercent > 0 && totalDiscountExclTax > 0) {
+    observations += `\nGeneral discount applied: ${totalDiscountExclTax.toFixed(2)} ${order.currency || "EUR"} (Global Discount: ${adjustedGlobalPercent}%)`;
+    console.log(
+      `[generateInvoice] General discount applied: ${totalDiscountExclTax.toFixed(2)} (excl. VAT) | Percent: ${adjustedGlobalPercent}%`,
+    );
+  }
+
+  // Validate totals
+  const expectedTotalWithVat = getMonetaryValue(order.totalValue, "totalValue");
+  const calculatedTotalWithVat =
+    (totalBaseExclTax + totalTax) * (1 - adjustedGlobalPercent / 100);
+
+  if (Math.abs(calculatedTotalWithVat - expectedTotalWithVat) > 0.01) {
+    console.warn(
+      `[generateInvoice] Total mismatch detected. Calculated: ${calculatedTotalWithVat.toFixed(2)} | Expected: ${expectedTotalWithVat.toFixed(2)}`,
+    );
+    if (totalBaseExclTax + totalTax > 0) {
+      adjustedGlobalPercent =
+        100 * (1 - expectedTotalWithVat / (totalBaseExclTax + totalTax));
+      adjustedGlobalPercent = parseFloat(adjustedGlobalPercent.toFixed(3));
+      observations += `\nAdjusted global discount to ${adjustedGlobalPercent}% to match order total`;
+      console.log(
+        `[generateInvoice] Adjusted global discount to ${adjustedGlobalPercent}% to match expected total: ${expectedTotalWithVat}`,
+      );
+    }
+  }
+
+  console.log(
+    `[generateInvoice] Totals - Base (excl. VAT): ${totalBaseExclTax.toFixed(2)} | Tax: ${totalTax.toFixed(2)} | Discount (excl. VAT): ${totalDiscountExclTax.toFixed(2)} | Total with VAT: ${calculatedTotalWithVat.toFixed(2)} | Expected: ${expectedTotalWithVat}`,
+  );
 
   // Prepare invoice payload
   const date = new Date().toISOString().split("T")[0];
@@ -187,7 +303,8 @@ export async function generateInvoice(order) {
     lines,
     finalize: login.finalized ?? true,
     reference: order.orderNumber,
-    observations: order.note === "N/A" ? "" : order.note,
+    observations,
+    discount: adjustedGlobalPercent, // Apply general discount percentage
   };
 
   console.log(
@@ -214,17 +331,8 @@ export async function generateInvoice(order) {
 
   const responseText = await response.text();
   console.log(`[generateInvoice] API Response: ${responseText}`);
-  let result;
-  try {
-    result = JSON.parse(responseText || "{}");
-  } catch {
-    console.error(
-      `[generateInvoice] Failed to parse API response: ${responseText}`,
-    );
-    throw new Error(`Failed to parse API response: ${responseText}`);
-  }
-
   if (!response.ok) {
+    const result = JSON.parse(responseText || "{}");
     const errorMsg =
       result.message ||
       result.error ||
@@ -235,9 +343,19 @@ export async function generateInvoice(order) {
     throw new Error(`Failed to create invoice: ${errorMsg}`);
   }
 
+  let result;
+  try {
+    result = JSON.parse(responseText || "{}");
+  } catch {
+    console.error(
+      `[generateInvoice] Failed to parse API response: ${responseText}`,
+    );
+    throw new Error(`Failed to parse API response: ${responseText}`);
+  }
+
   const invoiceId = result.data?.id || result.id;
   const invoiceNumber = result.data?.number || "N/A";
-  const invoiceTotal = result.data?.total || order.totalValue.toFixed(2);
+  const invoiceTotal = result.data?.total || expectedTotalWithVat.toFixed(2);
   const invoiceDate = result.data?.date
     ? new Date(result.data.date)
     : new Date();
@@ -251,7 +369,7 @@ export async function generateInvoice(order) {
       savedInvoice = await prisma.gESinvoices.create({
         data: {
           order_id: order.id.toString(),
-          order_total: order.totalValue.toFixed(2),
+          order_total: expectedTotalWithVat.toFixed(2),
           invoice_id: invoiceId.toString(),
           invoice_number: invoiceNumber,
           invoice_total: invoiceTotal.toString(),
@@ -262,7 +380,6 @@ export async function generateInvoice(order) {
       console.log(
         `[generateInvoice] Saved invoice ${savedInvoice.invoice_number} to gESinvoices (status: 1)`,
       );
-      savedInvoiceNumber = savedInvoice.invoice_number;
     } catch (err) {
       console.error(
         `[generateInvoice] Failed to save invoice to database: ${err.message}`,
@@ -274,7 +391,7 @@ export async function generateInvoice(order) {
   // Download PDF using invoiceId
   let invoiceFile = null;
   try {
-    await new Promise((resolve) => setTimeout(resolve, 2000)); // Increased delay
+    await new Promise((resolve) => setTimeout(resolve, 1000));
     const downloadEndpoint = `${apiUrl}sales/documents/${invoiceId}/type/FR`;
     console.log(`[generateInvoice] Fetching PDF from: ${downloadEndpoint}`);
     const downloadResponse = await fetch(downloadEndpoint, {
@@ -286,44 +403,20 @@ export async function generateInvoice(order) {
       },
     });
 
-    const responseText = await downloadResponse.text();
-    console.log(
-      `[generateInvoice] Raw PDF response: ${responseText.substring(0, 100)}...`,
-    );
-
     if (!downloadResponse.ok) {
-      console.warn(
-        `[generateInvoice] Failed to download PDF for invoice ${savedInvoiceNumber}: ${downloadResponse.statusText} (Status: ${downloadResponse.status})`,
-      );
       throw new Error(`Failed to download PDF: ${downloadResponse.statusText}`);
     }
 
-    let pdfData;
-    try {
-      pdfData = JSON.parse(responseText || "{}");
-    } catch {
-      console.error(
-        `[generateInvoice] Failed to parse PDF response: ${responseText}`,
-      );
-      throw new Error(`Failed to parse PDF response: ${responseText}`);
-    }
-
+    const pdfData = await downloadResponse.json();
     const pdfBase64 = pdfData.data?.document;
     if (!pdfBase64) {
-      console.error(
-        `[generateInvoice] PDF document missing in response: ${JSON.stringify(pdfData)}`,
-      );
       throw new Error("PDF document missing in GESfaturacao response");
     }
 
     const pdfContent = Buffer.from(pdfBase64, "base64");
     const contentLength = pdfContent.length;
-    console.log(`[generateInvoice] PDF size: ${contentLength} bytes`);
 
     if (pdfContent.toString("ascii", 0, 4) !== "%PDF") {
-      console.error(
-        `[generateInvoice] Invalid PDF content: missing %PDF header`,
-      );
       throw new Error("Invalid PDF content: missing %PDF header");
     }
 
@@ -338,7 +431,7 @@ export async function generateInvoice(order) {
     );
   } catch (err) {
     console.warn(
-      `[generateInvoice] Error downloading PDF for invoice ${savedInvoiceNumber}: ${err.message}. Returning invoice data without PDF.`,
+      `[generateInvoice] Error downloading PDF for invoice ${savedInvoiceNumber}: ${err.message}`,
     );
     invoiceFile = null;
   }
@@ -361,10 +454,6 @@ export async function generateInvoice(order) {
         `[generateInvoice] Failed to send email for invoice ${savedInvoiceNumber}: ${err.message}`,
       );
     }
-  } else {
-    console.log(
-      `[generateInvoice] Email not sent: email_auto=${login.email_auto}, customerEmail=${order.customerEmail}, isFinalized=${isFinalized}`,
-    );
   }
 
   return {
