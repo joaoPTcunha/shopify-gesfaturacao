@@ -68,12 +68,14 @@ export async function fetchProductDataFromOrder(order, lineItem) {
 
   const orderCountry = order.shippingAddress?.country || "Portugal";
   const defaultTaxRate = orderCountry === "Portugal" ? "23" : "0";
-  const tax =
-    taxRates.find(
-      (t) =>
-        t.region === (orderCountry === "Portugal" ? "PT" : orderCountry) &&
-        t.value === defaultTaxRate,
-    ) || taxRates.find((t) => t.id === "1");
+  const isTaxable = lineItem.taxable ?? true; // Use taxable from lineItem
+  const tax = isTaxable
+    ? taxRates.find(
+        (t) =>
+          t.region === (orderCountry === "Portugal" ? "PT" : orderCountry) &&
+          t.value === defaultTaxRate,
+      ) || taxRates.find((t) => t.id === "1")
+    : taxRates.find((t) => t.id === "4"); // Use tax ID 4 for non-taxable
 
   const taxRatePercentage = parseFloat(tax.value) / 100;
   const unitPriceExcludingVat = lineItem.unitPrice / (1 + taxRatePercentage);
@@ -103,7 +105,7 @@ export async function fetchProductDataFromOrder(order, lineItem) {
       serial_number: "",
       currency: order.currency || "EUR",
       description: lineItem.title,
-      exemption_reason: "",
+      exemption_reason: isTaxable ? "" : "M01",
     };
 
     const createResponse = await fetch(createUrl, {

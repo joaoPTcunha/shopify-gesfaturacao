@@ -143,10 +143,16 @@ export async function generateInvoice(order) {
       );
     }
 
-    const taxRate = item.taxLines?.[0]?.rate
-      ? item.taxLines[0].rate * 100
-      : defaultTaxRate;
-    const productTaxId = taxMap[taxRate] || 1;
+    // Determine tax ID based on taxable
+    const isTaxable = item.taxable ?? true; // Default to true if taxable is undefined
+    const productTaxId = isTaxable ? 1 : 4; // Taxable: ID 1, Non-taxable: ID 4
+
+    // Calculate tax rate for price calculations (use 0 for non-taxable items)
+    const taxRate = isTaxable
+      ? item.taxLines?.[0]?.rate
+        ? item.taxLines[0].rate * 100
+        : defaultTaxRate
+      : 0;
 
     const originalPriceExclTax = item.unitPrice / (1 + taxRate / 100);
     const roundedUnitPrice = parseFloat(originalPriceExclTax.toFixed(3));
@@ -207,7 +213,7 @@ export async function generateInvoice(order) {
     });
 
     console.log(
-      `[generateInvoice] Line item: ${item.title} | Price (excl. VAT): ${roundedUnitPrice} | Quantity: ${item.quantity} | Discount: ${totalLineDiscount}% | Subtotal (excl. VAT after discount): ${lineAfterDiscountExcl} | Tax: ${lineVat}`,
+      `[generateInvoice] Line item: ${item.title} | Price (excl. VAT): ${roundedUnitPrice} | Quantity: ${item.quantity} | Discount: ${totalLineDiscount}% | Subtotal (excl. VAT after discount): ${lineAfterDiscountExcl} | Tax: ${lineVat} | Taxable: ${isTaxable} | Tax ID: ${productTaxId}`,
     );
   }
 

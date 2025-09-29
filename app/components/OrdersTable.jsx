@@ -1,4 +1,3 @@
-// OrdersTable.jsx
 import { useLoaderData, useSearchParams, useFetcher } from "@remix-run/react";
 import { useState, useMemo, useEffect } from "react";
 import { toast } from "sonner";
@@ -12,8 +11,6 @@ export default function OrdersTable() {
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [isClient, setIsClient] = useState(false);
-  const [showDevelopmentMessage, setShowDevelopmentMessage] = useState(false);
-  const [message, setMessage] = useState(""); // Added to store success/error message
   const [isProcessing, setIsProcessing] = useState(false);
   const fetcher = useFetcher();
 
@@ -39,23 +36,11 @@ export default function OrdersTable() {
       } = fetcher.data;
 
       if (error) {
-        console.error(
-          `[OrdersTable] Error processing order ${orderNumber} (ID: ${orderId}):`,
-          error,
-        );
-        let errorMessage = `Erro ao ${
-          actionType === "downloadInvoice"
-            ? "baixar"
-            : actionType === "sendEmail"
-              ? "enviar email"
-              : "gerar"
-        } fatura para o pedido ${orderNumber}: ${error}`;
-
-        if (isClient) {
-          setMessage(errorMessage);
-          setShowDevelopmentMessage(true);
-          setTimeout(() => setShowDevelopmentMessage(false), 5000);
-        }
+        const errorMessage = error || "Erro desconhecido ao processar o pedido";
+        toast.error(errorMessage, {
+          description: `Pedido: ${orderNumber} (ID: ${orderId})`,
+          duration: 5000,
+        });
         return;
       }
 
@@ -63,6 +48,10 @@ export default function OrdersTable() {
         if (isClient) {
           toast.success(
             `Email enviado com sucesso para o pedido ${orderNumber}!`,
+            {
+              description: `Fatura: ${invoiceNumber}`,
+              duration: 3000,
+            },
           );
         }
       }
@@ -106,23 +95,29 @@ export default function OrdersTable() {
               link.click();
               document.body.removeChild(link);
               window.URL.revokeObjectURL(url);
-              console.log(`Download da fatura ${filename} iniciado.`);
+              toast.success(
+                `Download da fatura ${invoiceNumber} iniciado para o pedido ${orderNumber}!`,
+                {
+                  description: `Arquivo: ${filename}`,
+                  duration: 3000,
+                },
+              );
             } catch (err) {
-              console.error(
-                `[OrdersTable] Failed to process PDF download for order ${orderNumber}: ${err.message}`,
-              );
-              setMessage(
+              toast.error(
                 `Falha ao carregar o documento PDF para o pedido ${orderNumber}.`,
+                {
+                  description: `Erro: ${err.message}`,
+                  duration: 5000,
+                },
               );
-              setShowDevelopmentMessage(true);
-              setTimeout(() => setShowDevelopmentMessage(false), 5000);
             }
           } else if (actionType === "generateInvoice") {
-            setMessage(
+            toast.success(
               `Fatura ${invoiceNumber} gerada com sucesso para o pedido ${orderNumber}!`,
+              {
+                duration: 3000,
+              },
             );
-            setShowDevelopmentMessage(true);
-            setTimeout(() => setShowDevelopmentMessage(false), 3000);
           }
         }
       }
@@ -143,19 +138,17 @@ export default function OrdersTable() {
 
     const order = orders.find((o) => o.id === orderId);
     if (!order || !order.invoiceNumber || order.invoiceNumber === "N/A") {
-      console.error(`Fatura não encontrada para o pedido ${orderNumber}`);
-      setMessage(`Fatura não encontrada para o pedido ${orderNumber}.`);
-      setShowDevelopmentMessage(true);
-      setTimeout(() => setShowDevelopmentMessage(false), 3000);
+      toast.error(`Fatura não encontrada para o pedido ${orderNumber}.`, {
+        duration: 3000,
+      });
       setIsProcessing(false);
       return;
     }
 
     if (customerEmail === "N/A") {
-      console.log(`Email não disponível para o pedido ${orderNumber}.`);
-      setMessage(`Email não disponível para o pedido ${orderNumber}.`);
-      setShowDevelopmentMessage(true);
-      setTimeout(() => setShowDevelopmentMessage(false), 3000);
+      toast.error(`Email não disponível para o pedido ${orderNumber}.`, {
+        duration: 3000,
+      });
       setIsProcessing(false);
       return;
     }
@@ -179,10 +172,9 @@ export default function OrdersTable() {
     if (!isClient || isProcessing) return;
     const order = orders.find((o) => o.id === orderId);
     if (!order) {
-      console.error(`Erro: Pedido ${orderNumber} não encontrado`);
-      setMessage(`Erro: Pedido ${orderNumber} não encontrado`);
-      setShowDevelopmentMessage(true);
-      setTimeout(() => setShowDevelopmentMessage(false), 3000);
+      toast.error(`Erro: Pedido ${orderNumber} não encontrado`, {
+        duration: 3000,
+      });
       return;
     }
     console.log(
@@ -332,13 +324,6 @@ export default function OrdersTable() {
         </p>
 
         {error && <div className="alert alert-danger">{error}</div>}
-        {showDevelopmentMessage && (
-          <div
-            className={`alert ${fetcher.data?.success ? "alert-success" : "alert-danger"}`}
-          >
-            {message}
-          </div>
-        )}
 
         <div className="mb-4">
           <input

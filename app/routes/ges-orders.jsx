@@ -10,96 +10,32 @@ import { sendEmail } from "../services/sendEmail";
 export async function loader() {
   try {
     const query = `
-  query {
-    orders(first: 250, sortKey: CREATED_AT, reverse: true, query: "financial_status:PAID") {
-      edges {
-        node {
+query {
+  orders(first: 250, sortKey: CREATED_AT, reverse: true, query: "financial_status:PAID") {
+    edges {
+      node {
+        id
+        name
+        createdAt
+        totalPriceSet {
+          shopMoney {
+            amount
+            currencyCode
+          }
+        }
+        totalDiscountsSet {
+          shopMoney {
+            amount
+            currencyCode
+          }
+        }
+        displayFinancialStatus
+        customer {
           id
-          name
-          createdAt
-          totalPriceSet {
-            shopMoney {
-              amount
-              currencyCode
-            }
-          }
-          totalDiscountsSet {
-            shopMoney {
-              amount
-              currencyCode
-            }
-          }
-          displayFinancialStatus
-          customer {
-            id
-            firstName
-            lastName
-            email
-            metafields(first: 5, namespace: "custom") {
-              edges {
-                node {
-                  key
-                  value
-                }
-              }
-            }
-          }
-          lineItems(first: 50) {
-            edges {
-              node {
-                title
-                quantity
-                product {
-                  id
-                }
-                originalUnitPriceSet {
-                  shopMoney {
-                    amount
-                    currencyCode
-                  }
-                }
-                discountAllocations {
-                  allocatedAmountSet {
-                    shopMoney {
-                      amount
-                      currencyCode
-                    }
-                  }
-                }
-                taxLines {
-                  priceSet {
-                    shopMoney {
-                      amount
-                      currencyCode
-                    }
-                  }
-                  rate
-                  ratePercentage
-                  title
-                }
-              }
-            }
-          }
-          discountApplications(first: 10) {
-            edges {
-              node {
-                targetType
-                targetSelection
-                allocationMethod
-                value {
-                  __typename
-                  ... on MoneyV2 {
-                    amount
-                    currencyCode
-                  }
-                  ... on PricingPercentageValue {
-                    percentage
-                  }
-                }
-              }
-            }
-          }
-          metafields(first: 1, namespace: "invoicing") {
+          firstName
+          lastName
+          email
+          metafields(first: 5, namespace: "custom") {
             edges {
               node {
                 key
@@ -107,61 +43,122 @@ export async function loader() {
               }
             }
           }
-          shippingAddress {
-            name
-            company
-            address1
-            address2
-            city
-            province
-            country
-            zip
-            phone
-          }
-          billingAddress {
-            name
-            company
-            address1
-            address2
-            city
-            province
-            country
-            zip
-            phone
-          }
-          note
-          paymentGatewayNames
-          shippingLine {
-            title
-            originalPriceSet {
-              shopMoney {
-                amount
-                currencyCode
+        }
+        lineItems(first: 50) {
+          edges {
+            node {
+              title
+              quantity
+              product {
+                id
               }
-            }
-            discountedPriceSet {
-              shopMoney {
-                amount
-                currencyCode
+              variant {
+                id
+                taxable
               }
-            }
-            taxLines {
-              priceSet {
+              originalUnitPriceSet {
                 shopMoney {
                   amount
                   currencyCode
                 }
               }
-              rate
-              ratePercentage
-              title
+              
+              taxLines {
+                priceSet {
+                  shopMoney {
+                    amount
+                    currencyCode
+                  }
+                }
+                rate
+                ratePercentage
+                title
+              }
             }
+          }
+        }
+        discountApplications(first: 10) {
+          edges {
+            node {
+              targetType
+              targetSelection
+              allocationMethod
+              value {
+                __typename
+                ... on MoneyV2 {
+                  amount
+                  currencyCode
+                }
+                ... on PricingPercentageValue {
+                  percentage
+                }
+              }
+            }
+          }
+        }
+        metafields(first: 1, namespace: "invoicing") {
+          edges {
+            node {
+              key
+              value
+            }
+          }
+        }
+        shippingAddress {
+          name
+          company
+          address1
+          address2
+          city
+          province
+          country
+          zip
+          phone
+        }
+        billingAddress {
+          name
+          company
+          address1
+          address2
+          city
+          province
+          country
+          zip
+          phone
+        }
+        note
+        paymentGatewayNames
+        shippingLine {
+          title
+          originalPriceSet {
+            shopMoney {
+              amount
+              currencyCode
+            }
+          }
+          discountedPriceSet {
+            shopMoney {
+              amount
+              currencyCode
+            }
+          }
+          taxLines {
+            priceSet {
+              shopMoney {
+                amount
+                currencyCode
+              }
+            }
+            rate
+            ratePercentage
+            title
           }
         }
       }
     }
   }
-  `;
+}
+    `;
 
     const response = await fetch(
       `https://${process.env.SHOPIFY_STORE_DOMAIN}/admin/api/${process.env.API_VERSION}/graphql.json`,
@@ -213,6 +210,7 @@ export async function loader() {
           title: item.title || "N/A",
           quantity: item.quantity || 0,
           productId: item.product?.id || "N/A",
+          taxable: item.variant?.taxable ?? true,
           unitPrice: parseFloat(
             item.originalUnitPriceSet?.shopMoney?.amount || 0,
           ),
@@ -405,7 +403,7 @@ export async function action({ request }) {
       const invoiceFile = await downloadInvoicePDF(
         apiUrl,
         login.token,
-        existing年齢invoice.invoice_id,
+        existingInvoice.invoice_id,
       );
 
       return json({
