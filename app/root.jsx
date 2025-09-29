@@ -13,12 +13,11 @@ import { json } from "@remix-run/node";
 import { prisma } from "./prisma/client.js";
 import { useEffect } from "react";
 
-// 🔔 Import Sonner
 import { Toaster, toast } from "sonner";
 
 export async function loader() {
   try {
-    const login = await prisma.gESlogin.findFirst({
+    const login = await prisma.GESlogin.findFirst({
       orderBy: { date_login: "desc" },
       select: { token: true, date_expire: true },
     });
@@ -29,7 +28,7 @@ export async function loader() {
       new Date(login.date_expire) > new Date();
     return json({ isAuthenticated });
   } catch (error) {
-    console.error("[Root Loader] Error:", error.message);
+    console.error("[Root Loader] Errosr:", error.message);
     return json({ isAuthenticated: false });
   }
 }

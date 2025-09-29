@@ -4,8 +4,8 @@ import { fetchClientDataFromOrder } from "./client";
 import { fetchProductDataFromOrder } from "./product";
 import { fetchShippingProductData } from "./shipping";
 import { sendEmail } from "./sendEmail";
-import { fetchDiscountProductData } from "./discountProduct";
 import { getOrderDiscounts } from "./discountOrder";
+import { downloadInvoicePDF } from "./download";
 
 // Helper function to safely extract monetary value
 function getMonetaryValue(value, fieldName = "unknown") {
@@ -110,18 +110,26 @@ export async function generateInvoice(order) {
 
   const taxMap = { 23: 1, 13: 2, 6: 3, 0: 4 };
 
-  // Calculate line items (no product-specific discounts)
+  // Get discounts
+  const discountData = getOrderDiscounts(order);
+  const discountOnly = discountData.discountOnly;
+  const subtotalProductsWithVat = discountData.subtotalProductsWithVat;
+  let discountAmount = discountData.discountAmount;
+  const isProductSpecificDiscount = discountData.isProductSpecificDiscount;
+
+  // Calculate line items
   const lines = [];
   const productResults = [];
   const orderCountry = order.shippingAddress?.country || "Portugal";
   const defaultTaxRate = orderCountry === "Portugal" ? 23 : 0;
   let totalBaseExclTax = 0.0;
-  let totalTax = 0.0;
+  let totalBaseVat = 0.0;
+  let totalDiscountExclTax = 0.0;
 
   for (const [index, item] of order.lineItems.entries()) {
     if (!item.title || !item.unitPrice || !item.productId) {
       throw new Error(
-        `Missing product title, unit price, or product ID for item: ${item.title}`,
+        `Missing product title, unit price, or product ID for item: ${item.title || "unknown"}`,
       );
     }
 
@@ -132,33 +140,57 @@ export async function generateInvoice(order) {
       );
     }
 
-    // Determine tax rate
     const taxRate = item.taxLines?.[0]?.rate
       ? item.taxLines[0].rate * 100
       : defaultTaxRate;
     const productTaxId = taxMap[taxRate] || 1;
 
-    // Calculate price excluding VAT
-    const unitPriceExclTax = item.unitPrice / (1 + taxRate / 100);
-    const roundedUnitPrice = parseFloat(unitPriceExclTax.toFixed(3));
+    const originalPriceExclTax = item.unitPrice / (1 + taxRate / 100);
+    const roundedUnitPrice = parseFloat(originalPriceExclTax.toFixed(3));
 
-    const lineSubtotalExclTax = roundedUnitPrice * item.quantity;
-    const lineTax = lineSubtotalExclTax * (taxRate / 100);
+    // Safely extract productId
+    let productId;
+    try {
+      if (typeof item.productId !== "string" || !item.productId.includes("/")) {
+        throw new Error(`Invalid productId format for item: ${item.title}`);
+      }
+      productId = item.productId.split("/").pop();
+      if (!productId) {
+        throw new Error(`Failed to extract productId for item: ${item.title}`);
+      }
+    } catch (err) {
+      console.warn(
+        `[generateInvoice] ${err.message}. Defaulting to item index for discount lookup.`,
+      );
+      productId = `item-${index}`; // Fallback to a unique key
+    }
 
-    lines.push({
+    // Safely access discount, default to 0 if discountOnly is undefined or productId not found
+    const totalLineDiscount =
+      discountOnly && discountOnly[productId]
+        ? parseFloat(discountOnly[productId])
+        : 0.0;
+
+    const line = {
       id: parseInt(productResult.productId),
-      tax: productTaxId,
+      description: item.title.substring(0, 100),
       quantity: item.quantity,
       price: roundedUnitPrice,
-      description: item.title.substring(0, 100),
-      discount: 0, // No product-specific discounts
-      retention: 0,
+      tax: productTaxId,
+      discount: parseFloat(totalLineDiscount.toFixed(3)),
+      retention: 0.0,
       exemption_reason: productTaxId === 4 ? "M01" : "",
       type: "P",
-    });
+    };
+    lines.push(line);
 
-    totalBaseExclTax += lineSubtotalExclTax;
-    totalTax += lineTax;
+    const lineSubtotalExcl = roundedUnitPrice * item.quantity;
+    const lineAfterDiscountExcl =
+      lineSubtotalExcl * (1 - totalLineDiscount / 100.0);
+    totalDiscountExclTax += lineSubtotalExcl - lineAfterDiscountExcl;
+    const lineVat = lineAfterDiscountExcl * (taxRate / 100.0);
+    totalBaseExclTax += lineAfterDiscountExcl;
+    totalBaseVat += lineVat;
 
     productResults.push({
       title: item.title,
@@ -168,14 +200,23 @@ export async function generateInvoice(order) {
     });
 
     console.log(
-      `[generateInvoice] Line item: ${item.title} | Price (with VAT): ${item.unitPrice} | Tax Rate: ${taxRate}% | Price (excl. VAT): ${roundedUnitPrice} | Quantity: ${item.quantity} | Subtotal (excl. VAT): ${lineSubtotalExclTax} | Tax: ${lineTax}`,
+      `[generateInvoice] Line item: ${item.title} | Price (excl. VAT): ${roundedUnitPrice} | Quantity: ${item.quantity} | Discount: ${totalLineDiscount}% | Subtotal (excl. VAT after discount): ${lineAfterDiscountExcl} | Tax: ${lineVat}`,
     );
   }
 
-  // Add shipping line item
-  let shippingTaxRate = defaultTaxRate;
-  let shippingPriceExclTax = 0;
-  let originalShippingExclTax = 0;
+  // Process shipping
+  let totalShippingExclTax = getMonetaryValue(
+    order.shippingLine?.price,
+    "shippingLine",
+  );
+  let shippingTaxRate = order.shippingLine?.taxLines?.[0]?.rate
+    ? order.shippingLine.taxLines[0].rate * 100
+    : defaultTaxRate;
+  let totalShippingWithVat =
+    totalShippingExclTax * (1 + shippingTaxRate / 100.0);
+  let isFreeShipping = false;
+  let originalShippingExclTax = totalShippingExclTax;
+  let shippingDiscountPercent = 0.0;
 
   const shippingData = await fetchShippingProductData(
     order,
@@ -183,107 +224,92 @@ export async function generateInvoice(order) {
     login.token,
   );
   if (shippingData) {
-    const shippingItem = {
-      unitPrice: getMonetaryValue(
-        order.shippingLine?.originalPrice || order.shippingLine?.price,
-        "shippingLine",
-      ),
-      quantity: 1,
-    };
-
-    shippingTaxRate = order.shippingLine?.taxLines?.[0]?.rate
-      ? order.shippingLine.taxLines[0].rate * 100
-      : defaultTaxRate;
-    const shippingTaxId = taxMap[shippingTaxRate] || 1;
-
     // Check for free shipping discount
-    const isFreeShipping =
-      order.discountApplications?.some((app) => {
-        const value = app.node.value;
-        const typename = value.__typename;
-        return (
+    isFreeShipping =
+      order.discountApplications?.some(
+        (app) =>
           app.node.targetType === "SHIPPING_LINE" &&
           app.node.targetSelection === "ALL" &&
-          ((typename === "PricingPercentageValue" &&
-            value.percentage === 100) ||
-            (typename === "MoneyV2" &&
-              parseFloat(value.amount) === order.shippingLine.originalPrice))
-        );
-      }) || false;
+          ((app.node.value?.__typename === "PricingPercentageValue" &&
+            app.node.value.percentage === 100) ||
+            (app.node.value?.__typename === "MoneyV2" &&
+              parseFloat(app.node.value.amount) ===
+                getMonetaryValue(
+                  order.shippingLine?.originalPrice,
+                  "shippingLine",
+                ))),
+      ) || false;
 
     if (isFreeShipping) {
-      originalShippingExclTax =
-        shippingItem.unitPrice / (1 + shippingTaxRate / 100);
-      shippingPriceExclTax = 0;
+      shippingDiscountPercent = 100.0;
+      totalShippingExclTax = 0.0;
       console.log(
         `[generateInvoice] Free shipping detected. Original shipping (excl. VAT): ${originalShippingExclTax}`,
       );
-    } else {
-      originalShippingExclTax =
-        shippingItem.unitPrice / (1 + shippingTaxRate / 100);
-      shippingPriceExclTax = parseFloat(originalShippingExclTax.toFixed(3));
     }
+
+    const shippingTaxId = taxMap[shippingTaxRate] || 1;
 
     const shippingLine = {
       id: parseInt(shippingData.lineItem.id),
-      tax: shippingTaxId,
-      quantity: 1,
-      price: shippingPriceExclTax,
       description: shippingData.lineItem.description || "Custos de Envio",
-      discount: isFreeShipping ? 100 : 0, // Apply 100% discount for free shipping
-      retention: 0,
+      quantity: 1.0,
+      price: parseFloat(originalShippingExclTax.toFixed(3)),
+      tax: shippingTaxId,
+      discount: shippingDiscountPercent,
+      retention: 0.0,
       exemption_reason: shippingTaxRate === 0 ? "M01" : "",
       type: "S",
     };
-
     lines.push(shippingLine);
-    productResults.push(shippingData.productResult);
 
-    const shippingTax = shippingPriceExclTax * (shippingTaxRate / 100);
-    totalBaseExclTax += shippingPriceExclTax;
-    totalTax += shippingTax;
-
-    console.log(
-      `[generateInvoice] Shipping line: Price (excl. VAT): ${shippingPriceExclTax} | Tax Rate: ${shippingTaxRate}% | Discount: ${isFreeShipping ? 100 : 0}% | Tax: ${shippingTax}`,
-    );
+    totalBaseExclTax += totalShippingExclTax;
+    totalBaseVat += totalShippingExclTax * (shippingTaxRate / 100.0);
   }
 
-  // Calculate general discount
-  const discountOrderData = await getOrderDiscounts(order);
-  const adjustedGlobalPercent = discountOrderData.discountPercent || 0;
-  const totalDiscountExclTax = discountOrderData.discountAmount || 0;
-  let observations = order.note === "N/A" ? "" : order.note;
-
-  if (adjustedGlobalPercent > 0 && totalDiscountExclTax > 0) {
-    observations += `\nGeneral discount applied: ${totalDiscountExclTax.toFixed(2)} ${order.currency || "EUR"} (Global Discount: ${adjustedGlobalPercent}%)`;
-    console.log(
-      `[generateInvoice] General discount applied: ${totalDiscountExclTax.toFixed(2)} (excl. VAT) | Percent: ${adjustedGlobalPercent}%`,
-    );
-  }
-
-  // Validate totals
+  // Calculate totals
+  const totalBeforeDiscountsWithVat =
+    subtotalProductsWithVat +
+    (isFreeShipping
+      ? originalShippingExclTax * (1 + shippingTaxRate / 100.0)
+      : totalShippingWithVat);
   const expectedTotalWithVat = getMonetaryValue(order.totalValue, "totalValue");
-  const calculatedTotalWithVat =
-    (totalBaseExclTax + totalTax) * (1 - adjustedGlobalPercent / 100);
+  const totalIndividualDiscountWithVat =
+    totalDiscountExclTax * (1 + (totalBaseVat / totalBaseExclTax || 0.23));
+  const totalDiscountWithVat =
+    totalIndividualDiscountWithVat +
+    (isFreeShipping
+      ? originalShippingExclTax * (1 + shippingTaxRate / 100.0)
+      : 0);
+  const totalAfterIndividualDiscounts =
+    totalBeforeDiscountsWithVat - totalDiscountWithVat;
+  const remainingDiscountWithVat =
+    totalBeforeDiscountsWithVat - expectedTotalWithVat - totalDiscountWithVat;
+  let adjustedGlobalPercent = 0.0;
+  if (totalAfterIndividualDiscounts > 0 && remainingDiscountWithVat > 0.01) {
+    adjustedGlobalPercent =
+      (remainingDiscountWithVat / totalAfterIndividualDiscounts) * 100;
+    adjustedGlobalPercent = parseFloat(adjustedGlobalPercent.toFixed(3));
+  }
 
-  if (Math.abs(calculatedTotalWithVat - expectedTotalWithVat) > 0.01) {
-    console.warn(
-      `[generateInvoice] Total mismatch detected. Calculated: ${calculatedTotalWithVat.toFixed(2)} | Expected: ${expectedTotalWithVat.toFixed(2)}`,
-    );
-    if (totalBaseExclTax + totalTax > 0) {
+  const calculatedTotalWithVat = totalBaseExclTax + totalBaseVat;
+  const calculatedTotalWithGlobalDiscount =
+    calculatedTotalWithVat * (1 - adjustedGlobalPercent / 100.0);
+  if (
+    Math.abs(calculatedTotalWithGlobalDiscount - expectedTotalWithVat) > 0.01
+  ) {
+    if (calculatedTotalWithVat > 0) {
       adjustedGlobalPercent =
-        100 * (1 - expectedTotalWithVat / (totalBaseExclTax + totalTax));
+        100 * (1 - expectedTotalWithVat / calculatedTotalWithVat);
       adjustedGlobalPercent = parseFloat(adjustedGlobalPercent.toFixed(3));
-      observations += `\nAdjusted global discount to ${adjustedGlobalPercent}% to match order total`;
-      console.log(
-        `[generateInvoice] Adjusted global discount to ${adjustedGlobalPercent}% to match expected total: ${expectedTotalWithVat}`,
-      );
     }
   }
 
-  console.log(
-    `[generateInvoice] Totals - Base (excl. VAT): ${totalBaseExclTax.toFixed(2)} | Tax: ${totalTax.toFixed(2)} | Discount (excl. VAT): ${totalDiscountExclTax.toFixed(2)} | Total with VAT: ${calculatedTotalWithVat.toFixed(2)} | Expected: ${expectedTotalWithVat}`,
-  );
+  // Prepare observations
+  let observations = order.note === "N/A" ? "" : order.note;
+  if (adjustedGlobalPercent > 0) {
+    observations += `\nGeneral discount applied: ${remainingDiscountWithVat.toFixed(2)} ${order.currency || "EUR"} (Global Discount: ${adjustedGlobalPercent}%)`;
+  }
 
   // Prepare invoice payload
   const date = new Date().toISOString().split("T")[0];
@@ -297,14 +323,14 @@ export async function generateInvoice(order) {
     date,
     expiration,
     coin: 1,
-    payment: 1,
+    payment: 3,
     needsBank: false,
-    bank: "",
+    bank: 0,
     lines,
     finalize: login.finalized ?? true,
     reference: order.orderNumber,
     observations,
-    discount: adjustedGlobalPercent, // Apply general discount percentage
+    discount: adjustedGlobalPercent,
   };
 
   console.log(
