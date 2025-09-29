@@ -1,13 +1,25 @@
 export function getOrderDiscounts(order) {
   console.log(
-    `[getOrderDiscounts] Calculating general discount for order ${order.orderNumber}`,
+    `[getOrderDiscounts] Calculating discounts for order ${order.orderNumber}`,
   );
 
   // Initialize discount tracking
+  const discountOnly = {};
   let subtotalProductsBeforeDiscounts = 0.0; // Total without VAT before discounts
   let subtotalProductsWithVat = 0.0; // Total with VAT before discounts
-  let discountAmountExclTax = 0.0; // Total general discount amount (excl. VAT)
-  let discountPercent = 0.0; // General discount percentage
+  let discountAmountExclTax = 0.0; // Total discount amount (excl. VAT)
+  let isProductSpecificDiscount = false;
+
+  // Check discountApplications for general vs. product-specific
+  const hasGeneralDiscount = order.discountApplications?.some(
+    (app) =>
+      app.node.targetType === "LINE_ITEM" && app.node.targetSelection === "ALL",
+  );
+  const hasEntitledDiscount = order.discountApplications?.some(
+    (app) =>
+      app.node.targetType === "LINE_ITEM" &&
+      app.node.targetSelection === "ENTITLED",
+  );
 
   // Map order line items to order details
   const orderDetails = order.lineItems.map((item) => {
@@ -19,12 +31,12 @@ export function getOrderDiscounts(order) {
     const taxRate =
       item.taxLines?.[0]?.ratePercentage ||
       item.taxLines?.[0]?.rate * 100 ||
-      23.0; // Default to 23% if not provided
+      23.0; // Default to 23% for Portugal
     let itemDiscount = 0;
     if (item.discountAllocations?.length > 0) {
       itemDiscount = item.discountAllocations.reduce(
         (sum, alloc) =>
-          sum + parseFloat(alloc.allocatedAmountSet.shopMoney.amount),
+          sum + parseFloat(alloc.allocatedAmountSet.shopMoney.amount || 0),
         0,
       );
     }
@@ -37,77 +49,114 @@ export function getOrderDiscounts(order) {
     };
   });
 
-  // Calculate subtotal for products (before general discounts)
+  // Calculate subtotal and check if discounts are product-specific
+  let totalItemDiscountsWithVat = 0.0;
   for (const detail of orderDetails) {
-    const originalPrice = detail.originalPrice;
-    const quantity = detail.productQuantity;
-    const taxRate = detail.taxRate;
+    const { productId, originalPrice, productQuantity, taxRate, discount } =
+      detail;
 
-    // Calculate line subtotal (excluding VAT, before item-specific discounts)
+    // Calculate line subtotal (excluding VAT, before discounts)
     const unitExcl = originalPrice / (1 + taxRate / 100);
-    const lineSubtotalExcl = unitExcl * quantity;
+    const lineSubtotalExcl = unitExcl * productQuantity;
     subtotalProductsBeforeDiscounts += lineSubtotalExcl;
     const lineVat = lineSubtotalExcl * (taxRate / 100.0);
     subtotalProductsWithVat += lineSubtotalExcl + lineVat;
+    totalItemDiscountsWithVat += discount;
 
     console.log(
-      `[getOrderDiscounts] Product ID: ${detail.productId} | Original Price: ${originalPrice} | Quantity: ${quantity} | Tax Rate: ${taxRate}% | Line Subtotal (excl. VAT): ${lineSubtotalExcl} | Line VAT: ${lineVat}`,
+      `[getOrderDiscounts] Product ID: ${productId} | Original Price: ${originalPrice} | Quantity: ${productQuantity} | Tax Rate: ${taxRate}% | Line Subtotal (excl. VAT): ${lineSubtotalExcl} | Line VAT: ${lineVat} | Line Discount: ${discount}`,
     );
   }
 
-  // Fetch general discount from discountApplications (order-level, excluding shipping)
-  const generalDiscounts =
-    order.discountApplications?.filter(
-      (app) =>
-        app.node.targetSelection === "ALL" &&
-        app.node.targetType === "LINE_ITEM",
-    ) || [];
-
-  // Calculate total general discount
-  let totalDiscountWithVat = 0.0;
-  for (const app of generalDiscounts) {
-    const node = app.node;
-    const valueType = node.value.__typename;
-    let discountValue = 0;
-    if (valueType === "PricingPercentageValue") {
-      discountValue = node.value.percentage;
-      const discountAmount = (discountValue / 100.0) * subtotalProductsWithVat;
-      totalDiscountWithVat += discountAmount;
-    } else if (valueType === "MoneyV2") {
-      discountValue = parseFloat(node.value.amount || 0);
-      totalDiscountWithVat += discountValue;
-    }
-    console.log(
-      `[getOrderDiscounts] General discount: Type: ${valueType} | Value: ${discountValue} | Amount (with VAT): ${totalDiscountWithVat}`,
-    );
-  }
-
-  // Use Shopify's reported total discount if available
-  const expectedDiscountWithVat = parseFloat(
-    order.totalDiscountsSet?.shopMoney?.amount || totalDiscountWithVat,
+  // Determine discount type based on total value
+  const totalValue = parseFloat(order.totalValue || 0);
+  const expectedTotalBeforeDiscounts = order.lineItems.reduce(
+    (sum, item) => sum + item.unitPrice * item.quantity,
+    0,
   );
-  const weightedTaxRate =
-    subtotalProductsBeforeDiscounts > 0
-      ? (subtotalProductsWithVat - subtotalProductsBeforeDiscounts) /
-        subtotalProductsBeforeDiscounts
-      : 0.23;
-  discountAmountExclTax = expectedDiscountWithVat / (1 + weightedTaxRate);
+  const expectedDiscountWithVat = expectedTotalBeforeDiscounts - totalValue;
 
-  if (subtotalProductsBeforeDiscounts > 0) {
-    discountPercent =
-      (discountAmountExclTax / subtotalProductsBeforeDiscounts) * 100.0;
-    discountPercent = parseFloat(discountPercent.toFixed(3));
+  // Check if general discount matches total
+  if (hasGeneralDiscount && !hasEntitledDiscount) {
+    const generalDiscount = order.discountApplications.find(
+      (app) =>
+        app.node.targetType === "LINE_ITEM" &&
+        app.node.targetSelection === "ALL",
+    );
+    let generalDiscountAmount = 0.0;
+    if (generalDiscount.node.value.__typename === "PricingPercentageValue") {
+      generalDiscountAmount =
+        (generalDiscount.node.value.percentage / 100) * subtotalProductsWithVat;
+    } else if (generalDiscount.node.value.__typename === "MoneyV2") {
+      generalDiscountAmount = parseFloat(
+        generalDiscount.node.value.amount || 0,
+      );
+    }
+    if (Math.abs(generalDiscountAmount - expectedDiscountWithVat) < 0.01) {
+      isProductSpecificDiscount = false; // General discount matches total
+    } else if (totalItemDiscountsWithVat > 0) {
+      isProductSpecificDiscount = true; // Product-specific discounts present
+    }
+  } else if (hasEntitledDiscount || totalItemDiscountsWithVat > 0) {
+    isProductSpecificDiscount = true; // Product-specific discounts via ENTITLED or discountAllocations
+  }
+
+  // Calculate discounts
+  if (isProductSpecificDiscount) {
+    // Product-specific discounts
+    for (const detail of orderDetails) {
+      const { productId, originalPrice, productQuantity, discount } = detail;
+      const lineTotalWithVat = originalPrice * productQuantity;
+      discountOnly[productId] =
+        lineTotalWithVat > 0 ? (discount / lineTotalWithVat) * 100 : 0;
+      discountAmountExclTax += discount / (1 + detail.taxRate / 100);
+      console.log(
+        `[getOrderDiscounts] Product-specific discount for ${productId}: ${discountOnly[productId].toFixed(3)}%`,
+      );
+    }
+  } else if (hasGeneralDiscount) {
+    // General discounts
+    const generalDiscount = order.discountApplications.find(
+      (app) =>
+        app.node.targetType === "LINE_ITEM" &&
+        app.node.targetSelection === "ALL",
+    );
+    let totalDiscountWithVat = 0.0;
+    if (generalDiscount.node.value.__typename === "PricingPercentageValue") {
+      const discountValue = generalDiscount.node.value.percentage || 0;
+      totalDiscountWithVat = (discountValue / 100.0) * subtotalProductsWithVat;
+    } else if (generalDiscount.node.value.__typename === "MoneyV2") {
+      totalDiscountWithVat = parseFloat(generalDiscount.node.value.amount || 0);
+    }
+
+    const weightedTaxRate =
+      subtotalProductsBeforeDiscounts > 0
+        ? (subtotalProductsWithVat - subtotalProductsBeforeDiscounts) /
+          subtotalProductsBeforeDiscounts
+        : 0.23;
+    discountAmountExclTax = totalDiscountWithVat / (1 + weightedTaxRate);
+    const discountPercent =
+      subtotalProductsBeforeDiscounts > 0
+        ? (discountAmountExclTax / subtotalProductsBeforeDiscounts) * 100.0
+        : 0.0;
+
+    for (const detail of orderDetails) {
+      discountOnly[detail.productId] = parseFloat(discountPercent.toFixed(3));
+    }
+
+    console.log(
+      `[getOrderDiscounts] General discount: Amount (with VAT): ${totalDiscountWithVat} | Weighted Tax Rate: ${(weightedTaxRate * 100).toFixed(2)}% | Discount (excl. VAT): ${discountAmountExclTax} | Discount Percent: ${discountPercent}%`,
+    );
   }
 
   console.log(
-    `[getOrderDiscounts] Expected total discount (with VAT): ${expectedDiscountWithVat} | Weighted Tax Rate: ${(weightedTaxRate * 100).toFixed(2)}% | General discount (excl. VAT): ${discountAmountExclTax} | General discount percent: ${discountPercent}%`,
+    `[getOrderDiscounts] discountOnly: ${JSON.stringify(discountOnly)} | isProductSpecificDiscount: ${isProductSpecificDiscount}`,
   );
 
   return {
-    discountAmount: discountAmountExclTax,
-    discountPercent,
+    discountOnly,
     subtotalProductsWithVat,
-    subtotalProductsBeforeDiscounts,
-    weightedTaxRate,
+    discountAmount: discountAmountExclTax,
+    isProductSpecificDiscount,
   };
 }

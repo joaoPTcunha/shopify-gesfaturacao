@@ -1,4 +1,3 @@
-// receipt-invoice.js
 import prisma from "../../prisma/client";
 import { fetchClientDataFromOrder } from "./client";
 import { fetchProductDataFromOrder } from "./product";
@@ -114,8 +113,12 @@ export async function generateInvoice(order) {
   const discountData = getOrderDiscounts(order);
   const discountOnly = discountData.discountOnly;
   const subtotalProductsWithVat = discountData.subtotalProductsWithVat;
-  let discountAmount = discountData.discountAmount;
+  const discountAmountExclTax = discountData.discountAmount;
   const isProductSpecificDiscount = discountData.isProductSpecificDiscount;
+
+  console.log(
+    `[generateInvoice] discountOnly: ${JSON.stringify(discountOnly)} | isProductSpecificDiscount: ${isProductSpecificDiscount} | discountAmountExclTax: ${discountAmountExclTax}`,
+  );
 
   // Calculate line items
   const lines = [];
@@ -165,16 +168,14 @@ export async function generateInvoice(order) {
       productId = `item-${index}`; // Fallback to a unique key
     }
 
-    // Calculate product-specific discount from discountAllocations
+    // Calculate discount: only apply to line items for product-specific discounts
     let totalLineDiscount = 0.0;
-    if (item.discountAllocations?.length > 0) {
+    if (isProductSpecificDiscount && item.discountAllocations?.length > 0) {
       const discountAmount = item.discountAllocations.reduce((sum, alloc) => {
         return sum + parseFloat(alloc.allocatedAmountSet.shopMoney.amount || 0);
       }, 0);
       totalLineDiscount =
         (discountAmount / (item.unitPrice * item.quantity)) * 100;
-    } else if (discountOnly && discountOnly[productId]) {
-      totalLineDiscount = parseFloat(discountOnly[productId]) || 0.0;
     }
 
     const line = {
@@ -280,42 +281,45 @@ export async function generateInvoice(order) {
       ? originalShippingExclTax * (1 + shippingTaxRate / 100.0)
       : totalShippingWithVat);
   const expectedTotalWithVat = getMonetaryValue(order.totalValue, "totalValue");
-  const totalIndividualDiscountWithVat =
-    totalDiscountExclTax * (1 + (totalBaseVat / totalBaseExclTax || 0.23));
-  const totalDiscountWithVat =
-    totalIndividualDiscountWithVat +
-    (isFreeShipping
-      ? originalShippingExclTax * (1 + shippingTaxRate / 100.0)
-      : 0);
-  const totalAfterIndividualDiscounts =
-    totalBeforeDiscountsWithVat - totalDiscountWithVat;
-  const remainingDiscountWithVat =
-    totalBeforeDiscountsWithVat - expectedTotalWithVat - totalDiscountWithVat;
+
+  // Apply general discount at invoice level
   let adjustedGlobalPercent = 0.0;
-  if (totalAfterIndividualDiscounts > 0 && remainingDiscountWithVat > 0.01) {
-    adjustedGlobalPercent =
-      (remainingDiscountWithVat / totalAfterIndividualDiscounts) * 100;
-    adjustedGlobalPercent = parseFloat(adjustedGlobalPercent.toFixed(3));
+  if (!isProductSpecificDiscount && order.discountApplications?.length > 0) {
+    const generalDiscount = order.discountApplications.find(
+      (app) =>
+        app.node.targetType === "LINE_ITEM" &&
+        app.node.targetSelection === "ALL",
+    );
+    if (generalDiscount) {
+      const valueType = generalDiscount.node.value.__typename;
+      if (valueType === "PricingPercentageValue") {
+        adjustedGlobalPercent = parseFloat(
+          generalDiscount.node.value.percentage || 0,
+        );
+      } else if (valueType === "MoneyV2") {
+        const discountValue = parseFloat(
+          generalDiscount.node.value.amount || 0,
+        );
+        adjustedGlobalPercent =
+          (discountValue / totalBeforeDiscountsWithVat) * 100;
+        adjustedGlobalPercent = parseFloat(adjustedGlobalPercent.toFixed(3));
+      }
+    }
   }
 
-  const calculatedTotalWithVat = totalBaseExclTax + totalBaseVat;
-  const calculatedTotalWithGlobalDiscount =
-    calculatedTotalWithVat * (1 - adjustedGlobalPercent / 100.0);
-  if (
-    Math.abs(calculatedTotalWithGlobalDiscount - expectedTotalWithVat) > 0.01
-  ) {
-    if (calculatedTotalWithVat > 0) {
+  // Verify total matches expected
+  const calculatedTotalWithVat =
+    (totalBaseExclTax + totalBaseVat) * (1 - adjustedGlobalPercent / 100.0);
+  if (Math.abs(calculatedTotalWithVat - expectedTotalWithVat) > 0.01) {
+    if (totalBaseExclTax + totalBaseVat > 0) {
       adjustedGlobalPercent =
-        100 * (1 - expectedTotalWithVat / calculatedTotalWithVat);
+        100 * (1 - expectedTotalWithVat / (totalBaseExclTax + totalBaseVat));
       adjustedGlobalPercent = parseFloat(adjustedGlobalPercent.toFixed(3));
     }
   }
 
   // Prepare observations
   let observations = order.note === "N/A" ? "" : order.note;
-  if (adjustedGlobalPercent > 0) {
-    observations += `\nGeneral discount applied: ${remainingDiscountWithVat.toFixed(2)} ${order.currency || "EUR"} (Global Discount: ${adjustedGlobalPercent}%)`;
-  }
 
   // Prepare invoice payload
   const date = new Date().toISOString().split("T")[0];
