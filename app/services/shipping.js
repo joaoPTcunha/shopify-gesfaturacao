@@ -1,8 +1,6 @@
 import prisma from "../../prisma/client";
 
 export async function fetchShippingProductData(order, apiUrl, token) {
-  console.log("[fetchShippingProductData] Fetching shipping product data...");
-
   const login = await prisma.gESlogin.findFirst({
     where: { dom_licenca: process.env.GES_LICENSE },
     orderBy: { date_login: "desc" },
@@ -43,11 +41,6 @@ export async function fetchShippingProductData(order, apiUrl, token) {
     }
 
     const shippingProduct = await shippingProductResponse.json();
-    console.log(
-      "[fetchShippingProductData] Shipping product details:",
-      JSON.stringify(shippingProduct, null, 2),
-    );
-
     const shippingTaxId = shippingProduct.data?.tax?.id || 1;
     const shippingTaxRate =
       order.shippingLine?.taxLines?.[0]?.ratePercentage || 23.0;

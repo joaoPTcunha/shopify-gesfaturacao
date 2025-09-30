@@ -1,12 +1,6 @@
 import prisma from "../../prisma/client";
 
 export async function fetchClientDataFromOrder(order) {
-  console.log(`[fetchClientDataFromOrder] Processing order ID: ${order.id}`);
-  console.log(
-    `[fetchClientDataFromOrder] Order data:`,
-    JSON.stringify(order, null, 2),
-  );
-
   if (!order.customer && !order.billingAddress && !order.shippingAddress) {
     console.error(
       "[fetchClientDataFromOrder] No customer, billing address, or shipping address found in order",

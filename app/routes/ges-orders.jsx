@@ -55,6 +55,7 @@ query {
               variant {
                 id
                 taxable
+                sku 
               }
               originalUnitPriceSet {
                 shopMoney {
@@ -62,7 +63,6 @@ query {
                   currencyCode
                 }
               }
-              
               taxLines {
                 priceSet {
                   shopMoney {
@@ -216,6 +216,8 @@ query {
           ),
           taxLines: item.taxLines || [],
           discountAllocations: item.discountAllocations || [],
+          sku: item.variant?.sku || "", // Corrected to use variant.sku
+          variant: item.variant, // Include variant for compatibility
         })) || [],
       discountApplications: node.discountApplications?.edges || [],
       shippingAddress: node.shippingAddress
@@ -317,18 +319,7 @@ export async function action({ request }) {
         throw new Error(`Failed to parse order data: ${parseError.message}`);
       }
 
-      console.log(
-        `[ges-orders/action] Processing invoice generation for order ${order.orderNumber} (ID: ${order.id})`,
-      );
-
       clientResult = await fetchClientDataFromOrder(order);
-      console.log(
-        `[ges-orders/action] Client ${clientResult.status} for order ${order.orderNumber}: ID ${clientResult.clientId}`,
-      );
-      console.log(
-        `[ges-orders/action] Client result for order ${order.orderNumber}:`,
-        JSON.stringify(clientResult, null, 2),
-      );
 
       if (!clientResult.clientId || !clientResult.status) {
         console.error(
@@ -343,10 +334,6 @@ export async function action({ request }) {
       productResults = [];
       for (const lineItem of order.lineItems) {
         const productResult = await fetchProductDataFromOrder(order, lineItem);
-        console.log(
-          `[ges-orders/action] Product result for ${lineItem.title}:`,
-          JSON.stringify(productResult, null, 2),
-        );
         productResults.push({
           title: lineItem.title,
           productId: productResult.productId,
@@ -370,10 +357,6 @@ export async function action({ request }) {
       const invoiceResult = await generateInvoice(order);
       return json(invoiceResult);
     } else if (actionType === "downloadInvoice") {
-      console.log(
-        `[ges-orders/action] Processing invoice download for order ${orderNumber} (ID: ${orderId})`,
-      );
-
       const existingInvoice = await prisma.gESinvoices.findFirst({
         where: { order_id: orderId },
       });
@@ -415,10 +398,6 @@ export async function action({ request }) {
         invoiceNumber: existingInvoice.invoice_number,
       });
     } else if (actionType === "sendEmail") {
-      console.log(
-        `[ges-orders/action] Processing email send for order ${orderNumber} (ID: ${orderId})`,
-      );
-
       if (
         !orderId ||
         !orderNumber ||
@@ -468,10 +447,6 @@ export async function action({ request }) {
         token: login.token,
       });
 
-      console.log(
-        `[ges-orders/action] Email sent successfully for order ${orderNumber} to ${customerEmail}`,
-      );
-
       return json({
         success: true,
         orderId,
@@ -485,17 +460,6 @@ export async function action({ request }) {
       throw new Error(`Unknown action type: ${actionType}`);
     }
   } catch (error) {
-    console.error(
-      `[ges-orders/action] Error processing order ${order?.orderNumber || orderNumber || "unknown"} (ID: ${order?.id || orderId || "unknown"}): ${error.message}`,
-    );
-    console.log(
-      `[ges-orders/action] Client result during error:`,
-      JSON.stringify(clientResult, null, 2),
-    );
-    console.log(
-      `[ges-orders/action] Product results during error:`,
-      JSON.stringify(productResults, null, 2),
-    );
     const status = error.message.includes("creation failed") ? 400 : 500;
     return json(
       {

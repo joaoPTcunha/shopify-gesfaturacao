@@ -27,13 +27,6 @@ function getMonetaryValue(value, fieldName = "unknown") {
 }
 
 export async function generateInvoice(order) {
-  console.log(
-    `[generateInvoice] Processing invoice for order ${order.orderNumber} (ID: ${order.id})`,
-  );
-  console.log(
-    `[generateInvoice] Order data: ${JSON.stringify(order, null, 2)}`,
-  );
-
   if (!order.id || !order.orderNumber) {
     throw new Error("Missing orderId or orderNumber");
   }
@@ -71,9 +64,6 @@ export async function generateInvoice(order) {
   });
 
   if (existingInvoice) {
-    console.log(
-      `[generateInvoice] Deleting existing invoice ${existingInvoice.invoice_number} for order ${order.orderNumber}`,
-    );
     await prisma.gESinvoices.delete({ where: { id: existingInvoice.id } });
   }
 
@@ -98,9 +88,6 @@ export async function generateInvoice(order) {
     });
     const taxesData = await taxesResponse.json();
     availableTaxes = taxesData.data || [];
-    console.log(
-      `[generateInvoice] Available taxes: ${JSON.stringify(availableTaxes)}`,
-    );
   } catch (error) {
     console.warn(
       `[generateInvoice] Failed to fetch taxes: ${error.message}. Using default taxId: 1`,
@@ -115,10 +102,6 @@ export async function generateInvoice(order) {
   const subtotalProductsWithVat = discountData.subtotalProductsWithVat;
   const discountAmountExclTax = discountData.discountAmount;
   const isProductSpecificDiscount = discountData.isProductSpecificDiscount;
-
-  console.log(
-    `[generateInvoice] discountOnly: ${JSON.stringify(discountOnly)} | isProductSpecificDiscount: ${isProductSpecificDiscount} | discountAmountExclTax: ${discountAmountExclTax}`,
-  );
 
   // Calculate line items
   const lines = [];
@@ -211,10 +194,6 @@ export async function generateInvoice(order) {
       status: productResult.status,
       found: productResult.found,
     });
-
-    console.log(
-      `[generateInvoice] Line item: ${item.title} | Price (excl. VAT): ${roundedUnitPrice} | Quantity: ${item.quantity} | Discount: ${totalLineDiscount}% | Subtotal (excl. VAT after discount): ${lineAfterDiscountExcl} | Tax: ${lineVat} | Taxable: ${isTaxable} | Tax ID: ${productTaxId}`,
-    );
   }
 
   // Process shipping
@@ -256,9 +235,6 @@ export async function generateInvoice(order) {
     if (isFreeShipping) {
       shippingDiscountPercent = 100.0;
       totalShippingExclTax = 0.0;
-      console.log(
-        `[generateInvoice] Free shipping detected. Original shipping (excl. VAT): ${originalShippingExclTax}`,
-      );
     }
 
     const shippingTaxId = taxMap[shippingTaxRate] || 1;
@@ -372,7 +348,6 @@ export async function generateInvoice(order) {
   }
 
   const responseText = await response.text();
-  console.log(`[generateInvoice] API Response: ${responseText}`);
   if (!response.ok) {
     const result = JSON.parse(responseText || "{}");
     const errorMsg =
@@ -403,7 +378,6 @@ export async function generateInvoice(order) {
     : new Date();
   const isFinalized = result.data?.finalize ?? login.finalized ?? true;
 
-  // Save to gESinvoices only if finalized
   let savedInvoice = null;
   let savedInvoiceNumber = invoiceNumber;
   if (isFinalized) {
@@ -419,9 +393,6 @@ export async function generateInvoice(order) {
           invoice_status: 1,
         },
       });
-      console.log(
-        `[generateInvoice] Saved invoice ${savedInvoice.invoice_number} to gESinvoices (status: 1)`,
-      );
     } catch (err) {
       console.error(
         `[generateInvoice] Failed to save invoice to database: ${err.message}`,
@@ -435,7 +406,6 @@ export async function generateInvoice(order) {
   try {
     await new Promise((resolve) => setTimeout(resolve, 1000));
     const downloadEndpoint = `${apiUrl}sales/documents/${invoiceId}/type/FR`;
-    console.log(`[generateInvoice] Fetching PDF from: ${downloadEndpoint}`);
     const downloadResponse = await fetch(downloadEndpoint, {
       method: "GET",
       headers: {
@@ -468,9 +438,6 @@ export async function generateInvoice(order) {
       filename: `fatura_${invoiceId}.pdf`,
       size: contentLength,
     };
-    console.log(
-      `[generateInvoice] Successfully downloaded PDF for invoice ${savedInvoiceNumber}`,
-    );
   } catch (err) {
     console.warn(
       `[generateInvoice] Error downloading PDF for invoice ${savedInvoiceNumber}: ${err.message}`,
@@ -488,9 +455,6 @@ export async function generateInvoice(order) {
         apiUrl,
         token: login.token,
       });
-      console.log(
-        `[generateInvoice] Email sent successfully for invoice ${savedInvoiceNumber} to ${order.customerEmail}`,
-      );
     } catch (err) {
       console.error(
         `[generateInvoice] Failed to send email for invoice ${savedInvoiceNumber}: ${err.message}`,

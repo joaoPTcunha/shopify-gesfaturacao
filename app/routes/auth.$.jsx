@@ -1,7 +1,6 @@
 import { authenticate } from "../../shopify.server";
 
 export const loader = async ({ request }) => {
-  console.log("Auth loader called with URL:", request.url);
   try {
     const authResult = await authenticate.admin(request);
     if (authResult.session) {

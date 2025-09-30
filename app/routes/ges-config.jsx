@@ -27,7 +27,6 @@ export async function loader({ request }) {
 
       // Fetch series
       const seriesUrl = `${apiUrl}series`;
-      console.log("Fetching series from:", seriesUrl);
       const seriesResponse = await fetch(seriesUrl, {
         method: "GET",
         headers: {
@@ -49,7 +48,6 @@ export async function loader({ request }) {
 
       // Fetch services (portes)
       const servicesUrl = `${apiUrl}products/type/service`;
-      console.log("Fetching services from:", servicesUrl);
       const servicesResponse = await fetch(servicesUrl, {
         method: "GET",
         headers: {

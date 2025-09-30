@@ -55,10 +55,6 @@ export async function sendEmail({ id, type, email, expired, apiUrl, token }) {
         `Failed to send email: ${errorMsg} (Status: ${response.status})`,
       );
     }
-
-    console.log(
-      `[sendEmail] Email sent successfully for invoice ID ${id} to ${email}`,
-    );
     return result;
   } catch (err) {
     console.error(

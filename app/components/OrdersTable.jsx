@@ -67,10 +67,6 @@ export default function OrdersTable() {
         );
 
         if (isClient) {
-          console.log(
-            `Fatura ${invoiceNumber} ${actionType === "downloadInvoice" ? "baixada" : "gerada"} com sucesso para o pedido ${orderNumber}!`,
-          );
-
           if (invoiceFile) {
             try {
               const { contentType, data, filename } = invoiceFile;
@@ -127,8 +123,10 @@ export default function OrdersTable() {
   const handleShowDetails = (order) => {
     if (isProcessing) return;
     setIsProcessing(true);
-    setSelectedOrder(order);
-    setShowModal(true);
+    // Redirect to Shopify order page
+    const orderId = order.id.replace("gid://shopify/Order/", "");
+    const shopifyUrl = `https://admin.shopify.com/store/gesfaturacao-dev-teste/orders/${orderId}`;
+    window.open(shopifyUrl, "_blank");
     setTimeout(() => setIsProcessing(false), 500);
   };
 
@@ -160,11 +158,6 @@ export default function OrdersTable() {
     formData.append("customerEmail", customerEmail);
     formData.append("invoiceNumber", order.invoiceNumber);
 
-    console.log(
-      `[OrdersTable] Submitting sendEmail for order ${orderNumber} (ID: ${orderId})`,
-      { customerEmail, invoiceNumber: order.invoiceNumber },
-    );
-
     fetcher.submit(formData, { method: "post", action: "/ges-orders" });
   };
 
@@ -177,9 +170,6 @@ export default function OrdersTable() {
       });
       return;
     }
-    console.log(
-      `${isDownload ? "Baixando" : "Gerando"} fatura para o pedido ${orderNumber}...`,
-    );
     setIsProcessing(true);
 
     const formData = new FormData();
@@ -189,15 +179,42 @@ export default function OrdersTable() {
     );
     formData.append("order", JSON.stringify(order));
 
-    console.log(
-      `[OrdersTable] Submitting ${isDownload ? "download" : "invoice generation"} for order ${orderNumber} (ID: ${orderId})`,
-      JSON.stringify(order, null, 2),
-    );
-
     fetcher.submit(formData, { method: "post", action: "/ges-orders" });
   };
 
   const translateStatus = (status) => (status === "PAID" ? "Pago" : status);
+
+  const calculateOrderSummary = (lineItems) => {
+    const totalItems = lineItems.reduce(
+      (sum, item) => sum + (item.quantity || 0),
+      0,
+    );
+    const subtotal = lineItems.reduce(
+      (sum, item) => sum + (item.quantity || 0) * (item.unitPrice || 0),
+      0,
+    );
+    return { totalItems, subtotal };
+  };
+
+  const formatAddress = (address) => {
+    if (!address) return "N/A";
+    const parts = [
+      address.address1,
+      address.address2,
+      address.city,
+      address.province,
+      address.zip,
+      address.country,
+      address.phone ? `Tel: ${address.phone}` : "",
+    ].filter(Boolean);
+    return parts.join(", ") || "N/A";
+  };
+
+  const goToPage = (page) => {
+    if (page >= 1 && page <= totalPages) {
+      setSearchParams({ page: page.toString() });
+    }
+  };
 
   const currentPage = parseInt(searchParams.get("page") || "1", 10);
   const pageSize = 10;
@@ -283,36 +300,10 @@ export default function OrdersTable() {
     return pages;
   };
 
-  const calculateOrderSummary = (lineItems) => {
-    const totalItems = lineItems.reduce(
-      (sum, item) => sum + (item.quantity || 0),
-      0,
-    );
-    const subtotal = lineItems.reduce(
-      (sum, item) => sum + (item.quantity || 0) * (item.unitPrice || 0),
-      0,
-    );
-    return { totalItems, subtotal };
-  };
-
-  const formatAddress = (address) => {
-    if (!address) return "N/A";
-    const parts = [
-      address.address1,
-      address.address2,
-      address.city,
-      address.province,
-      address.zip,
-      address.country,
-      address.phone ? `Tel: ${address.phone}` : "",
-    ].filter(Boolean);
-    return parts.join(", ") || "N/A";
-  };
-
-  const goToPage = (page) => {
-    if (page >= 1 && page <= totalPages) {
-      setSearchParams({ page: page.toString() });
-    }
+  const getDiscountAmount = (discountApplications) => {
+    if (!discountApplications || discountApplications.length === 0) return 0;
+    const discount = discountApplications[0]?.node?.value?.amount;
+    return typeof discount === "number" ? discount : parseFloat(discount || 0);
   };
 
   return (
@@ -391,13 +382,13 @@ export default function OrdersTable() {
                       <td>
                         <button
                           className="btn btn-sm btn-outline-info me-2"
-                          title="Detalhe Ordem"
+                          title="Ver Detalhes no Shopify"
                           onClick={() => handleShowDetails(order)}
                           disabled={isProcessing}
                         >
                           <img
                             src="/icons/magnifying-glass.png"
-                            alt="Detalhe Ordem"
+                            alt="Ver Detalhes no Shopify"
                             style={{
                               width: "22px",
                               height: "22px",
@@ -476,190 +467,7 @@ export default function OrdersTable() {
           </nav>
         )}
 
-        {isClient && selectedOrder && (
-          <div
-            className={`modal fade ${showModal ? "show d-block" : ""}`}
-            tabIndex="-1"
-            style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
-          >
-            <div className="modal-dialog modal-xl modal-dialog-centered">
-              <div className="modal-content">
-                <div className="modal-header">
-                  <h5 className="modal-title">
-                    Detalhes do Pedido {selectedOrder.orderNumber}
-                  </h5>
-                  <button
-                    type="button"
-                    className="btn-close"
-                    onClick={() => setShowModal(false)}
-                  ></button>
-                </div>
-                <div className="modal-body">
-                  <div className="card mb-3 shadow-sm">
-                    <div className="card-header bg-light">
-                      <strong>Informações do Cliente</strong>
-                    </div>
-                    <div className="card-body">
-                      <p>
-                        <strong>Nome:</strong>{" "}
-                        {selectedOrder.customerName || "N/A"}
-                      </p>
-                      <p>
-                        <strong>Email:</strong>{" "}
-                        {selectedOrder.customerEmail || "N/A"}
-                      </p>
-                      <p>
-                        <strong>NIF / VAT:</strong>{" "}
-                        {selectedOrder.customerMetafields?.find(
-                          (m) => m.node.key === "vat_number",
-                        )?.node.value || "N/A"}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="card mb-3 shadow-sm">
-                    <div className="card-header bg-light">
-                      <strong>Informações do Pedido</strong>
-                    </div>
-                    <div className="card-body row">
-                      <div className="col-md-6 mb-2">
-                        <p>
-                          <strong>N.º Encomenda:</strong>{" "}
-                          {selectedOrder.orderNumber}
-                        </p>
-                        <p>
-                          <strong>Data:</strong>{" "}
-                          {new Date(selectedOrder.orderDate).toLocaleString(
-                            "pt-PT",
-                          )}
-                        </p>
-                        <p>
-                          <strong>Valor Total:</strong>{" "}
-                          {selectedOrder.totalValue.toFixed(2)}{" "}
-                          {selectedOrder.currency}
-                        </p>
-                        <p>
-                          <strong>Estado:</strong>{" "}
-                          {translateStatus(selectedOrder.status)}
-                        </p>
-                      </div>
-                      <div className="col-md-6 mb-2">
-                        <p>
-                          <strong>N.º Fatura:</strong>{" "}
-                          {selectedOrder.invoiceNumber || "-----"}
-                        </p>
-                        <p>
-                          <strong>Total de Itens:</strong>{" "}
-                          {
-                            calculateOrderSummary(selectedOrder.lineItems)
-                              .totalItems
-                          }
-                        </p>
-                        <p>
-                          <strong>Subtotal:</strong>{" "}
-                          {calculateOrderSummary(
-                            selectedOrder.lineItems,
-                          ).subtotal.toFixed(2)}{" "}
-                          {selectedOrder.currency}
-                        </p>
-                        <p>
-                          <strong>Método de Pagamento:</strong>{" "}
-                          {selectedOrder.paymentGatewayNames?.join(", ") ||
-                            "N/A"}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="card mb-3 shadow-sm">
-                    <div className="card-header bg-light">
-                      <strong>Endereço & Envio</strong>
-                    </div>
-                    <div className="card-body row">
-                      <div className="col-md-6 mb-2">
-                        <p>
-                          <strong>Endereço de Envio:</strong>{" "}
-                          {formatAddress(selectedOrder.shippingAddress)}
-                        </p>
-                        <p>
-                          <strong>Método de Envio:</strong>{" "}
-                          {selectedOrder.shippingLine?.title || "N/A"}
-                        </p>
-                        <p>
-                          <strong>Custo de Envio:</strong>{" "}
-                          {selectedOrder.shippingLine?.price?.toFixed(2) ||
-                            "N/A"}{" "}
-                          {selectedOrder.currency}
-                        </p>
-                      </div>
-                      <div className="col-md-6 mb-2">
-                        <p>
-                          <strong>Endereço de Faturamento:</strong>{" "}
-                          {formatAddress(selectedOrder.billingAddress)}
-                        </p>
-                        <p>
-                          <strong>Status da Entrega:</strong>{" "}
-                          {selectedOrder.fulfillmentStatus || "N/A"}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="card mb-3 shadow-sm">
-                    <div className="card-header bg-light">
-                      <strong>Itens do Pedido</strong>
-                    </div>
-                    <div className="card-body table-responsive">
-                      {selectedOrder.lineItems?.length > 0 ? (
-                        <table className="table table-bordered table-sm">
-                          <thead className="table-light">
-                            <tr>
-                              <th>Produto</th>
-                              <th>Quantidade</th>
-                              <th>Preço Unitário</th>
-                              <th>Total</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {selectedOrder.lineItems.map((item, index) => {
-                              const quantity = item.quantity || 0;
-                              const unitPrice = item.unitPrice || 0;
-                              return (
-                                <tr key={index}>
-                                  <td>{item.title || "N/A"}</td>
-                                  <td>{quantity}</td>
-                                  <td>
-                                    {unitPrice.toFixed(2)}{" "}
-                                    {selectedOrder.currency}
-                                  </td>
-                                  <td>
-                                    {(quantity * unitPrice).toFixed(2)}{" "}
-                                    {selectedOrder.currency}
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      ) : (
-                        <p>Nenhum item encontrado.</p>
-                      )}
-                    </div>
-                  </div>
-                </div>
-                <div className="modal-footer">
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    onClick={() => setShowModal(false)}
-                  >
-                    Fechar
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
+        {/* Modal removed - functionality moved to Shopify redirect */}
       </div>
 
       <style>{`
@@ -673,6 +481,16 @@ export default function OrdersTable() {
         .btn-outline-primary:disabled {
           opacity: 0.6;
           cursor: not-allowed;
+        }
+        .table th, .table td {
+          vertical-align: middle;
+        }
+        .card-header {
+          font-size: 1.1rem;
+          font-weight: 500;
+        }
+        .text-end p {
+          margin-bottom: 0.5rem;
         }
       `}</style>
     </Layout>

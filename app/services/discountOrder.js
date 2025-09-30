@@ -1,8 +1,4 @@
 export function getOrderDiscounts(order) {
-  console.log(
-    `[getOrderDiscounts] Calculating discounts for order ${order.orderNumber}`,
-  );
-
   // Initialize discount tracking
   const discountOnly = {};
   let subtotalProductsBeforeDiscounts = 0.0; // Total without VAT before discounts
@@ -62,10 +58,6 @@ export function getOrderDiscounts(order) {
     const lineVat = lineSubtotalExcl * (taxRate / 100.0);
     subtotalProductsWithVat += lineSubtotalExcl + lineVat;
     totalItemDiscountsWithVat += discount;
-
-    console.log(
-      `[getOrderDiscounts] Product ID: ${productId} | Original Price: ${originalPrice} | Quantity: ${productQuantity} | Tax Rate: ${taxRate}% | Line Subtotal (excl. VAT): ${lineSubtotalExcl} | Line VAT: ${lineVat} | Line Discount: ${discount}`,
-    );
   }
 
   // Determine discount type based on total value
@@ -110,9 +102,6 @@ export function getOrderDiscounts(order) {
       discountOnly[productId] =
         lineTotalWithVat > 0 ? (discount / lineTotalWithVat) * 100 : 0;
       discountAmountExclTax += discount / (1 + detail.taxRate / 100);
-      console.log(
-        `[getOrderDiscounts] Product-specific discount for ${productId}: ${discountOnly[productId].toFixed(3)}%`,
-      );
     }
   } else if (hasGeneralDiscount) {
     // General discounts
@@ -143,15 +132,7 @@ export function getOrderDiscounts(order) {
     for (const detail of orderDetails) {
       discountOnly[detail.productId] = parseFloat(discountPercent.toFixed(3));
     }
-
-    console.log(
-      `[getOrderDiscounts] General discount: Amount (with VAT): ${totalDiscountWithVat} | Weighted Tax Rate: ${(weightedTaxRate * 100).toFixed(2)}% | Discount (excl. VAT): ${discountAmountExclTax} | Discount Percent: ${discountPercent}%`,
-    );
   }
-
-  console.log(
-    `[getOrderDiscounts] discountOnly: ${JSON.stringify(discountOnly)} | isProductSpecificDiscount: ${isProductSpecificDiscount}`,
-  );
 
   return {
     discountOnly,
