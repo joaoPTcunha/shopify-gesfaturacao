@@ -1,5 +1,4 @@
 export function getOrderDiscounts(order) {
-  // Initialize discount tracking
   const discountOnly = {};
   let subtotalProductsBeforeDiscounts = 0.0; // Total without VAT before discounts
   let subtotalProductsWithVat = 0.0; // Total with VAT before discounts

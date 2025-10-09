@@ -3,7 +3,7 @@ import { fetchClientDataFromOrder } from "./client";
 import { fetchProductDataFromOrder } from "./product";
 import { fetchShippingProductData } from "./shipping";
 import { sendEmail } from "./sendEmail";
-import { getOrderDiscounts } from "./discountOrder";
+import { Discounts } from "./discounts";
 import { downloadInvoicePDF } from "./download";
 
 // Helper function to safely extract monetary value
@@ -51,7 +51,7 @@ export async function generateInvoice(order) {
 
   const expireDate = login.date_expire ? new Date(login.date_expire) : null;
   if (!expireDate || expireDate < new Date()) {
-    await prisma.gESlogin.delete({ where: { id: login.id } });
+    await prisma.gESinvoices.delete({ where: { id: login.id } });
     throw new Error("GES session expired");
   }
 
@@ -97,7 +97,7 @@ export async function generateInvoice(order) {
   const taxMap = { 23: 1, 13: 2, 6: 3, 0: 4 };
 
   // Get discounts
-  const discountData = getOrderDiscounts(order);
+  const discountData = Discounts(order);
   const discountOnly = discountData.discountOnly;
   const subtotalProductsWithVat = discountData.subtotalProductsWithVat;
   const discountAmountExclTax = discountData.discountAmount;
@@ -127,10 +127,10 @@ export async function generateInvoice(order) {
     }
 
     // Determine tax ID based on taxable
-    const isTaxable = item.taxable ?? true; // Default to true if taxable is undefined
-    const productTaxId = isTaxable ? 1 : 4; // Taxable: ID 1, Non-taxable: ID 4
+    const isTaxable = item.taxable ?? true;
+    const productTaxId = isTaxable ? 1 : 4;
 
-    // Calculate tax rate for price calculations (use 0 for non-taxable items)
+    // Calculate tax rate for price calculations
     const taxRate = isTaxable
       ? item.taxLines?.[0]?.rate
         ? item.taxLines[0].rate * 100
@@ -154,10 +154,9 @@ export async function generateInvoice(order) {
       console.warn(
         `[generateInvoice] ${err.message}. Defaulting to item index for discount lookup.`,
       );
-      productId = `item-${index}`; // Fallback to a unique key
+      productId = `item-${index}`;
     }
 
-    // Calculate discount: only apply to line items for product-specific discounts
     let totalLineDiscount = 0.0;
     if (isProductSpecificDiscount && item.discountAllocations?.length > 0) {
       const discountAmount = item.discountAllocations.reduce((sum, alloc) => {
@@ -165,6 +164,17 @@ export async function generateInvoice(order) {
       }, 0);
       totalLineDiscount =
         (discountAmount / (item.unitPrice * item.quantity)) * 100;
+    }
+
+    let exemptionId = 0;
+    if (productTaxId === 4) {
+      const gesProduct = productResult.productData.gesProduct;
+      if (gesProduct && gesProduct.exemptionID) {
+        exemptionId = parseInt(gesProduct.exemptionID, 10); // Ensure integer
+        console.log(
+          `[generateInvoice] Using product exemptionID: ${exemptionId} for ${item.title}`,
+        );
+      }
     }
 
     const line = {
@@ -175,7 +185,8 @@ export async function generateInvoice(order) {
       tax: productTaxId,
       discount: parseFloat(totalLineDiscount.toFixed(3)),
       retention: 0.0,
-      exemption_reason: productTaxId === 4 ? "M01" : "",
+      exemption: exemptionId, // Use 'exemption' as integer
+      unit: 1,
       type: "P",
     };
     lines.push(line);
@@ -216,7 +227,6 @@ export async function generateInvoice(order) {
     login.token,
   );
   if (shippingData) {
-    // Check for free shipping discount
     isFreeShipping =
       order.discountApplications?.some(
         (app) =>
@@ -238,6 +248,7 @@ export async function generateInvoice(order) {
     }
 
     const shippingTaxId = taxMap[shippingTaxRate] || 1;
+    const shippingExemptionId = shippingTaxRate === 0;
 
     const shippingLine = {
       id: parseInt(shippingData.lineItem.id),
@@ -247,7 +258,7 @@ export async function generateInvoice(order) {
       tax: shippingTaxId,
       discount: shippingDiscountPercent,
       retention: 0.0,
-      exemption_reason: shippingTaxRate === 0 ? "M01" : "",
+      exemption: shippingExemptionId, // Use 'exemption' as integer
       type: "S",
     };
     lines.push(shippingLine);

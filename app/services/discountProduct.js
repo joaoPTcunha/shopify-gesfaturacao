@@ -1,4 +1,4 @@
-// discountProduct.js
+/* // discountProduct.js
 export async function fetchDiscountProductData(order, item) {
   const discountAmount = item.discountAmount || 0;
   const totalOriginalGross = item.quantity * item.unitPrice;
@@ -10,3 +10,4 @@ export async function fetchDiscountProductData(order, item) {
     type: "product-specific",
   };
 }
+ */
