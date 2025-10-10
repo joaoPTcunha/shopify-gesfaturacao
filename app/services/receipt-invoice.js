@@ -126,19 +126,31 @@ export async function generateInvoice(order) {
       );
     }
 
-    // Determine tax ID based on taxable
     const isTaxable = item.taxable ?? true;
     const productTaxId = isTaxable ? 1 : 4;
 
-    // Calculate tax rate for price calculations
+    // Calculate tax rate
     const taxRate = isTaxable
-      ? item.taxLines?.[0]?.rate
-        ? item.taxLines[0].rate * 100
+      ? item.taxLines?.length > 0
+        ? item.taxLines[0].ratePercentage
+          ? parseFloat(item.taxLines[0].ratePercentage)
+          : item.taxLines[0].rate
+            ? item.taxLines[0].rate * 100
+            : defaultTaxRate
         : defaultTaxRate
       : 0;
 
-    const originalPriceExclTax = item.unitPrice / (1 + taxRate / 100);
+    // Treat unitPrice as VAT-exclusive if taxLines exists, else VAT-inclusive
+    const originalPriceExclTax =
+      isTaxable && item.taxLines?.length > 0
+        ? parseFloat(item.unitPrice)
+        : isTaxable
+          ? parseFloat(item.unitPrice) / (1 + taxRate / 100)
+          : parseFloat(item.unitPrice);
     const roundedUnitPrice = parseFloat(originalPriceExclTax.toFixed(3));
+    const vatInclusivePrice = item.originalUnitPriceSet?.shopMoney?.amount
+      ? parseFloat(item.originalUnitPriceSet.shopMoney.amount)
+      : originalPriceExclTax * (1 + taxRate / 100);
 
     // Safely extract productId
     let productId;
@@ -163,14 +175,14 @@ export async function generateInvoice(order) {
         return sum + parseFloat(alloc.allocatedAmountSet.shopMoney.amount || 0);
       }, 0);
       totalLineDiscount =
-        (discountAmount / (item.unitPrice * item.quantity)) * 100;
+        (discountAmount / (vatInclusivePrice * item.quantity)) * 100;
     }
 
     let exemptionId = 0;
     if (productTaxId === 4) {
       const gesProduct = productResult.productData.gesProduct;
       if (gesProduct && gesProduct.exemptionID) {
-        exemptionId = parseInt(gesProduct.exemptionID, 10); // Ensure integer
+        exemptionId = parseInt(gesProduct.exemptionID, 10);
         console.log(
           `[generateInvoice] Using product exemptionID: ${exemptionId} for ${item.title}`,
         );
@@ -185,7 +197,7 @@ export async function generateInvoice(order) {
       tax: productTaxId,
       discount: parseFloat(totalLineDiscount.toFixed(3)),
       retention: 0.0,
-      exemption: exemptionId, // Use 'exemption' as integer
+      exemption: exemptionId,
       unit: 1,
       type: "P",
     };
@@ -248,7 +260,7 @@ export async function generateInvoice(order) {
     }
 
     const shippingTaxId = taxMap[shippingTaxRate] || 1;
-    const shippingExemptionId = shippingTaxRate === 0;
+    const shippingExemptionId = shippingTaxRate === 0 ? 1 : 0;
 
     const shippingLine = {
       id: parseInt(shippingData.lineItem.id),
@@ -258,7 +270,7 @@ export async function generateInvoice(order) {
       tax: shippingTaxId,
       discount: shippingDiscountPercent,
       retention: 0.0,
-      exemption: shippingExemptionId, // Use 'exemption' as integer
+      exemption: shippingExemptionId,
       type: "S",
     };
     lines.push(shippingLine);
@@ -304,10 +316,16 @@ export async function generateInvoice(order) {
   const calculatedTotalWithVat =
     (totalBaseExclTax + totalBaseVat) * (1 - adjustedGlobalPercent / 100.0);
   if (Math.abs(calculatedTotalWithVat - expectedTotalWithVat) > 0.01) {
+    console.warn(
+      `[generateInvoice] Total mismatch: calculated=${calculatedTotalWithVat}, expected=${expectedTotalWithVat}`,
+    );
     if (totalBaseExclTax + totalBaseVat > 0) {
       adjustedGlobalPercent =
         100 * (1 - expectedTotalWithVat / (totalBaseExclTax + totalBaseVat));
       adjustedGlobalPercent = parseFloat(adjustedGlobalPercent.toFixed(3));
+      console.log(
+        `[generateInvoice] Adjusted global discount to ${adjustedGlobalPercent}% to match expected total`,
+      );
     }
   }
 

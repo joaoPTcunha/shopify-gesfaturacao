@@ -1,9 +1,22 @@
-export function getOrderDiscounts(order) {
+export function Discounts(order) {
   const discountOnly = {};
   let subtotalProductsBeforeDiscounts = 0.0; // Total without VAT before discounts
   let subtotalProductsWithVat = 0.0; // Total with VAT before discounts
   let discountAmountExclTax = 0.0; // Total discount amount (excl. VAT)
   let isProductSpecificDiscount = false;
+
+  // Helper function to validate and clamp discount percentage
+  function clampDiscount(value, context = "unknown") {
+    if (value < 0 || value > 100) {
+      console.error(
+        `[Discounts] Invalid discount detected in ${context}: ${value}%. Discounts must be between 0% and 100%.`,
+      );
+      throw new Error(
+        `Invalid discount in ${context}: ${value}%. Discounts must be between 0% and 100%.`,
+      );
+    }
+    return parseFloat(value.toFixed(3));
+  }
 
   // Check discountApplications for general vs. product-specific
   const hasGeneralDiscount = order.discountApplications?.some(
@@ -37,7 +50,7 @@ export function getOrderDiscounts(order) {
     }
     return {
       productId,
-      originalPrice: item.unitPrice || 0,
+      originalPrice: parseFloat(item.unitPrice || 0),
       productQuantity: item.quantity || 1,
       taxRate,
       discount: itemDiscount,
@@ -47,11 +60,11 @@ export function getOrderDiscounts(order) {
   // Calculate subtotal and check if discounts are product-specific
   let totalItemDiscountsWithVat = 0.0;
   for (const detail of orderDetails) {
-    const { productId, originalPrice, productQuantity, taxRate, discount } =
-      detail;
+    const { originalPrice, productQuantity, taxRate, discount } = detail;
 
     // Calculate line subtotal (excluding VAT, before discounts)
-    const unitExcl = originalPrice / (1 + taxRate / 100);
+    const unitExcl =
+      taxRate > 0 ? originalPrice / (1 + taxRate / 100) : originalPrice;
     const lineSubtotalExcl = unitExcl * productQuantity;
     subtotalProductsBeforeDiscounts += lineSubtotalExcl;
     const lineVat = lineSubtotalExcl * (taxRate / 100.0);
@@ -62,7 +75,7 @@ export function getOrderDiscounts(order) {
   // Determine discount type based on total value
   const totalValue = parseFloat(order.totalValue || 0);
   const expectedTotalBeforeDiscounts = order.lineItems.reduce(
-    (sum, item) => sum + item.unitPrice * item.quantity,
+    (sum, item) => sum + parseFloat(item.unitPrice || 0) * item.quantity,
     0,
   );
   const expectedDiscountWithVat = expectedTotalBeforeDiscounts - totalValue;
@@ -84,12 +97,12 @@ export function getOrderDiscounts(order) {
       );
     }
     if (Math.abs(generalDiscountAmount - expectedDiscountWithVat) < 0.01) {
-      isProductSpecificDiscount = false; // General discount matches total
+      isProductSpecificDiscount = false;
     } else if (totalItemDiscountsWithVat > 0) {
-      isProductSpecificDiscount = true; // Product-specific discounts present
+      isProductSpecificDiscount = true;
     }
   } else if (hasEntitledDiscount || totalItemDiscountsWithVat > 0) {
-    isProductSpecificDiscount = true; // Product-specific discounts via ENTITLED or discountAllocations
+    isProductSpecificDiscount = true;
   }
 
   // Calculate discounts
@@ -98,8 +111,12 @@ export function getOrderDiscounts(order) {
     for (const detail of orderDetails) {
       const { productId, originalPrice, productQuantity, discount } = detail;
       const lineTotalWithVat = originalPrice * productQuantity;
-      discountOnly[productId] =
+      const discountPercent =
         lineTotalWithVat > 0 ? (discount / lineTotalWithVat) * 100 : 0;
+      discountOnly[productId] = clampDiscount(
+        discountPercent,
+        `product-specific discount for ${productId}`,
+      );
       discountAmountExclTax += discount / (1 + detail.taxRate / 100);
     }
   } else if (hasGeneralDiscount) {
@@ -129,7 +146,10 @@ export function getOrderDiscounts(order) {
         : 0.0;
 
     for (const detail of orderDetails) {
-      discountOnly[detail.productId] = parseFloat(discountPercent.toFixed(3));
+      discountOnly[detail.productId] = clampDiscount(
+        discountPercent,
+        `general discount for ${detail.productId}`,
+      );
     }
   }
 

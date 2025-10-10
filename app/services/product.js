@@ -12,6 +12,7 @@ export async function fetchProductDataFromOrder(order, lineItem) {
   console.log(
     `[GESF] Iniciando sincronização de produto - Código: ${lineItem.sku || lineItem.variant?.sku || "N/A"}, Nome: ${lineItem.title}`,
   );
+
   // Verificar sessão GES
   const login = await prisma.gESlogin.findFirst({
     where: { dom_licenca: process.env.GES_LICENSE },
@@ -42,11 +43,45 @@ export async function fetchProductDataFromOrder(order, lineItem) {
     .trim();
   const stockQuantity = lineItem.quantity;
   const isTaxable = lineItem.taxable ?? true;
-  const taxRatePercentage = isTaxable ? 0.23 : 0;
+
+  // Determine tax rate for taxable products
+  const orderCountry = order.shippingAddress?.country || "Portugal";
+  const defaultTaxRate = orderCountry === "Portugal" ? 23 : 0;
+  let taxRatePercentage = isTaxable
+    ? lineItem.taxLines?.length > 0
+      ? lineItem.taxLines[0].ratePercentage
+        ? parseFloat(lineItem.taxLines[0].ratePercentage)
+        : lineItem.taxLines[0].rate
+          ? parseFloat(lineItem.taxLines[0].rate) * 100
+          : defaultTaxRate
+      : defaultTaxRate
+    : 0;
+
+  console.log(
+    `[GESF] Tax rate for ${lineItem.title}: ${taxRatePercentage}% (from ${lineItem.taxLines?.length > 0 ? (lineItem.taxLines[0].ratePercentage ? "ratePercentage" : "rate") : "default"})`,
+  );
+
+  // Calculate price excluding VAT and PVP
+  const unitPriceExcludingVat =
+    isTaxable && lineItem.taxLines?.length > 0
+      ? parseFloat(lineItem.unitPrice)
+      : isTaxable
+        ? parseFloat(lineItem.unitPrice) / (1 + taxRatePercentage / 100)
+        : parseFloat(lineItem.unitPrice);
+  const pvpPrice = lineItem.originalUnitPriceSet?.shopMoney?.amount
+    ? parseFloat(lineItem.originalUnitPriceSet.shopMoney.amount)
+    : unitPriceExcludingVat * (1 + taxRatePercentage / 100);
+
+  console.log(
+    `[GESF] Prices for ${lineItem.title}: excl. VAT=€${unitPriceExcludingVat.toFixed(3)}, PVP=€${pvpPrice.toFixed(4)}`,
+  );
 
   // Função auxiliar para buscar isenção de IVA
   async function getExemptionId(reasonCode) {
-    if (!reasonCode) return null;
+    if (!reasonCode) {
+      console.warn(`[GESF] No exemption reason provided for ${lineItem.title}`);
+      return null;
+    }
     try {
       const response = await fetch(`${apiUrl}exemption-reasons`, {
         method: "GET",
@@ -57,7 +92,8 @@ export async function fetchProductDataFromOrder(order, lineItem) {
         },
         signal: AbortSignal.timeout(10000),
       });
-      if (!response.ok) throw new Error("Falha ao buscar isenções");
+      if (!response.ok)
+        throw new Error(`Falha ao buscar isenções: ${response.statusText}`);
       const data = await response.json();
       const exemptions = data.data || [];
       const exemption = exemptions.find(
@@ -65,7 +101,13 @@ export async function fetchProductDataFromOrder(order, lineItem) {
           ex.code?.toUpperCase() === reasonCode.toUpperCase() ||
           ex.name?.toUpperCase().includes(reasonCode.toUpperCase()),
       );
-      return exemption ? parseInt(exemption.id, 10) : null;
+      if (!exemption) {
+        console.warn(
+          `[GESF] Exemption reason ${reasonCode} not found for ${lineItem.title}`,
+        );
+        return null;
+      }
+      return parseInt(exemption.id, 10);
     } catch (error) {
       console.error(`[GESF] Erro ao buscar isenções: ${error.message}`);
       return null;
@@ -174,18 +216,13 @@ export async function fetchProductDataFromOrder(order, lineItem) {
           )
         : null;
 
-    if (
-      !isTaxable &&
-      (!exemptionId || exemptionId === 0) &&
-      gesProduct.exemption_reason
-    ) {
-      exemptionId = await getExemptionId(gesProduct.exemption_reason);
-    }
-
     if (!isTaxable && (!exemptionId || exemptionId === 0)) {
-      const errorMessage = `Não é possível gerar fatura: O produto ${lineItem.title} deve ser criado no GESfaturacao com um motivo de isenção de IVA válido.`;
-      console.error(`[GESF] Erro: ${errorMessage}`);
-      throw new Error(errorMessage);
+      exemptionId = await getExemptionId(gesProduct.exemption_reason || "M20");
+      if (!exemptionId) {
+        const errorMessage = `Não é possível gerar fatura: O produto ${lineItem.title} deve ter um motivo de isenção de IVA válido no GESfaturacao.`;
+        console.error(`[GESF] Erro: ${errorMessage}`);
+        throw new Error(errorMessage);
+      }
     }
 
     return {
@@ -201,7 +238,7 @@ export async function fetchProductDataFromOrder(order, lineItem) {
     };
   }
 
-  // Lidar com produto não encontrado (incluindo status 400)
+  // Lidar com produto não encontrado
   const errors = searchResult.errors
     ? Array.isArray(searchResult.errors)
       ? searchResult.errors
@@ -245,18 +282,14 @@ export async function fetchProductDataFromOrder(order, lineItem) {
       }
     } catch {}
 
-    const createUrl = `${apiUrl}products`;
-    const unitPriceExcludingVat = lineItem.unitPrice / (1 + taxRatePercentage);
-    const roundedUnitPrice = parseFloat(unitPriceExcludingVat.toFixed(3));
-
     const productData = {
       name: lineItem.title,
       code: productCode,
       type: "P",
       unit: 1,
-      pvp: parseFloat(lineItem.unitPrice.toFixed(4)),
+      pvp: parseFloat(pvpPrice.toFixed(4)),
       tax: isTaxable ? 1 : 4,
-      price: roundedUnitPrice,
+      price: parseFloat(unitPriceExcludingVat.toFixed(3)),
       stock: stockQuantity,
       initial_stock: stockQuantity,
       minimum_stock: 0,
@@ -264,13 +297,12 @@ export async function fetchProductDataFromOrder(order, lineItem) {
       currency: order.currency || "EUR",
       description: lineItem.title,
       category: categoryId,
-      exemption_reason: isTaxable ? "" : "M01",
+      exemption_reason: isTaxable ? "" : "M20",
       observations: "",
       image: "",
     };
 
-    // Tentar criar com JSON
-    let createResponse = await fetch(createUrl, {
+    let createResponse = await fetch(`${apiUrl}products`, {
       method: "POST",
       headers: {
         Authorization: login.token,
@@ -282,10 +314,9 @@ export async function fetchProductDataFromOrder(order, lineItem) {
 
     let createResponseText = await createResponse.text();
 
-    // Tentar com form-urlencoded se JSON falhar
     if (!createResponse.ok) {
       console.log("[GESF] JSON falhou, tentando form-urlencoded");
-      createResponse = await fetch(createUrl, {
+      createResponse = await fetch(`${apiUrl}products`, {
         method: "POST",
         headers: {
           Authorization: login.token,
@@ -305,12 +336,11 @@ export async function fetchProductDataFromOrder(order, lineItem) {
         throw new Error(`Falha na criação do produto: ${createResponseText}`);
       }
 
-      // Tratar PV_CODE_10: buscar produto existente por código
       if (createResponseBody.errors?.some((err) => err.code === "PV_CODE_10")) {
         console.log(
           `[GESF] Produto ${productCode} já existe, tentando buscar novamente`,
         );
-        await delay(1000); // Atraso para consistência eventual
+        await delay(200);
         const retrySearchResult = await fetchProductByCode(productCode);
         if (retrySearchResult.status === 200 && retrySearchResult.data?.id) {
           const gesProduct = retrySearchResult.data;
@@ -327,18 +357,15 @@ export async function fetchProductDataFromOrder(order, lineItem) {
                 )
               : null;
 
-          if (
-            !isTaxable &&
-            (!exemptionId || exemptionId === 0) &&
-            gesProduct.exemption_reason
-          ) {
-            exemptionId = await getExemptionId(gesProduct.exemption_reason);
-          }
-
           if (!isTaxable && (!exemptionId || exemptionId === 0)) {
-            const errorMessage = `Não é possível gerar fatura: O produto ${lineItem.title} deve ser criado no GESfaturacao com um motivo de isenção de IVA válido.`;
-            console.error(`[GESF] Erro: ${errorMessage}`);
-            throw new Error(errorMessage);
+            exemptionId = await getExemptionId(
+              gesProduct.exemption_reason || "M20",
+            );
+            if (!exemptionId) {
+              const errorMessage = `Não é possível gerar fatura: O produto ${lineItem.title} deve ter um motivo de isenção de IVA válido no GESfaturacao.`;
+              console.error(`[GESF] Erro: ${errorMessage}`);
+              throw new Error(errorMessage);
+            }
           }
 
           return {
@@ -353,72 +380,11 @@ export async function fetchProductDataFromOrder(order, lineItem) {
             },
           };
         }
-
-        // Tentar buscar por ID, se disponível
-        if (createResponseBody.data?.id) {
-          console.log(
-            `[GESF] Tentando buscar produto por ID: ${createResponseBody.data.id}`,
-          );
-          const idSearchResult = await fetchProductById(
-            createResponseBody.data.id,
-          );
-          if (idSearchResult.status === 200 && idSearchResult.data?.id) {
-            const gesProduct = idSearchResult.data;
-            const productIdGes = gesProduct.id;
-            let exemptionId =
-              gesProduct.exemptionID ||
-              gesProduct.exemptionId ||
-              gesProduct.exemption_reason_id
-                ? parseInt(
-                    gesProduct.exemptionID ||
-                      gesProduct.exemptionId ||
-                      gesProduct.exemption_reason_id,
-                    10,
-                  )
-                : null;
-
-            if (
-              !isTaxable &&
-              (!exemptionId || exemptionId === 0) &&
-              gesProduct.exemption_reason
-            ) {
-              exemptionId = await getExemptionId(gesProduct.exemption_reason);
-            }
-
-            if (!isTaxable && (!exemptionId || exemptionId === 0)) {
-              const errorMessage = `Não é possível gerar fatura: O produto ${lineItem.title} deve ser criado no GESfaturacao com um motivo de isenção de IVA válido.`;
-              console.error(`[GESF] Erro: ${errorMessage}`);
-              throw new Error(errorMessage);
-            }
-
-            return {
-              productId: productIdGes,
-              exemptionID: exemptionId,
-              found: true,
-              status: "found_by_id",
-              productCode,
-              productData: {
-                ...lineItem,
-                gesProduct: { ...gesProduct, exemptionID: exemptionId },
-              },
-            };
-          }
-        }
-
-        const errorMessage =
-          createResponseBody.errors
-            ?.map((err) => `${err.code}: ${err.message}`)
-            .join("; ") || `Falha na criação do produto: ${createResponseText}`;
-        console.error(`[GESF] Erro: ${errorMessage}`);
-        throw new Error(errorMessage);
       }
 
       const errorMessage =
         createResponseBody.errors
-          ?.map(
-            (err) =>
-              `${err.code || "Erro desconhecido"}: ${err.message || "Sem mensagem"}`,
-          )
+          ?.map((err) => `${err.code}: ${err.message}`)
           .join("; ") || `Falha na criação do produto: ${createResponseText}`;
       console.error(`[GESF] Erro: ${errorMessage}`);
       throw new Error(errorMessage);
@@ -445,6 +411,17 @@ export async function fetchProductDataFromOrder(order, lineItem) {
             10,
           )
         : null;
+
+    if (!isTaxable && (!exemptionId || exemptionId === 0)) {
+      exemptionId = await getExemptionId(
+        newProduct.data?.exemption_reason || "M20",
+      );
+      if (!exemptionId) {
+        const errorMessage = `Não é possível gerar fatura: O produto ${lineItem.title} deve ter um motivo de isenção de IVA válido no GESfaturacao.`;
+        console.error(`[GESF] Erro: ${errorMessage}`);
+        throw new Error(errorMessage);
+      }
+    }
 
     if (!productIdGes) {
       const errorMessage = `Criação do produto bem-sucedida, mas nenhum ID retornado: ${createResponseText}`;

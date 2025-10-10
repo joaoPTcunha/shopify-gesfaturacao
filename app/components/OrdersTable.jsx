@@ -217,7 +217,7 @@ export default function OrdersTable() {
   };
 
   const currentPage = parseInt(searchParams.get("page") || "1", 10);
-  const pageSize = 10;
+  const pageSize = 20; //mudar futuramente
 
   const filteredOrders = useMemo(() => {
     if (!searchTerm) return orders;

@@ -1,10 +1,17 @@
-export async function downloadInvoicePDF(apiUrl, token, invoiceId) {
+export async function downloadInvoicePDF(invoiceId, type, apiUrl, token) {
   if (!apiUrl || !token || !invoiceId) {
-    console.error("[downloadInvoicePDF] Missing apiUrl, token, or invoiceId");
+    console.error(
+      `[downloadInvoicePDF] Missing parameters: apiUrl=${apiUrl}, token=${token}, invoiceId=${invoiceId}`,
+    );
     throw new Error("Missing apiUrl, token, or invoiceId");
   }
 
-  const downloadEndpoint = `${apiUrl}sales/documents/${invoiceId}/type/FR`;
+  let cleanApiUrl = apiUrl.replace(/\/+$/, "");
+  cleanApiUrl = `${cleanApiUrl}/`;
+
+  const downloadEndpoint = `${cleanApiUrl}sales/documents/${invoiceId}/type/${type}`;
+  console.log(`[downloadInvoicePDF] Fetching PDF from: ${downloadEndpoint}`);
+
   try {
     const downloadResponse = await fetch(downloadEndpoint, {
       method: "GET",
@@ -19,7 +26,7 @@ export async function downloadInvoicePDF(apiUrl, token, invoiceId) {
 
     if (!downloadResponse.ok) {
       console.warn(
-        `[downloadInvoicePDF] Failed to download invoice PDF: ${downloadResponse.statusText} (Status: ${downloadResponse.status})`,
+        `[downloadInvoicePDF] Failed to download invoice PDF: ${downloadResponse.statusText} (Status: ${downloadResponse.status}), Response: ${downloadResponseText}`,
       );
       throw new Error(
         `Failed to download invoice PDF: ${downloadResponse.statusText} (Status: ${downloadResponse.status})`,
@@ -29,7 +36,7 @@ export async function downloadInvoicePDF(apiUrl, token, invoiceId) {
     let pdfData;
     try {
       pdfData = JSON.parse(downloadResponseText || "{}");
-    } catch {
+    } catch (err) {
       console.error(
         `[downloadInvoicePDF] Failed to parse PDF response: ${downloadResponseText}`,
       );
@@ -51,7 +58,7 @@ export async function downloadInvoicePDF(apiUrl, token, invoiceId) {
     const pdfHeader = pdfContent.toString("ascii", 0, 4);
     if (pdfHeader !== "%PDF") {
       console.error(
-        `[downloadInvoicePDF] Invalid PDF content, missing %PDF header`,
+        `[downloadInvoicePDF] Invalid PDF content, missing %PDF header: ${pdfBase64.substring(0, 50)}`,
       );
       throw new Error("Invalid PDF content: missing %PDF header");
     }
