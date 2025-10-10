@@ -66,8 +66,6 @@ export async function fetchShippingProductData(order, apiUrl, token) {
         "[fetchShippingProductData] All products are VAT 0 → setting shipping VAT 0",
       );
     }
-
-    // 💰 5. Calcular preço sem IVA
     const shippingPriceWithVat = parseFloat(order.shippingLine.price);
     const shippingPriceExclTax = parseFloat(
       (shippingTaxRate > 0
@@ -88,7 +86,7 @@ export async function fetchShippingProductData(order, apiUrl, token) {
         description: shippingDescription,
         discount: 0,
         retention: 0,
-        exemption_reason: shippingTaxId === 4 ? "M01" : "",
+        exemption_reason: shippingTaxId === 4 ? "M10" : "",
         type: "S",
       },
       productResult: {

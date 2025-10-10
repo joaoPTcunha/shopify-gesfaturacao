@@ -490,7 +490,7 @@ export async function action({ request }) {
     const status = error.message.includes("creation failed") ? 400 : 500;
     return json(
       {
-        error: `Failed to process order: ${error.message}`,
+        error: `Token Expirado ou erro na criação da fatura - Mensagem de erro: ${error.message}`,
         orderId: order?.id || orderId || "unknown",
         orderNumber: order?.orderNumber || orderNumber || "unknown",
         actionType: actionType || "unknown",

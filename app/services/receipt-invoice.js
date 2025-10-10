@@ -75,7 +75,6 @@ export async function generateInvoice(order) {
     );
   }
 
-  // Fetch available taxes
   let availableTaxes = [];
   try {
     const taxesResponse = await fetch(`${apiUrl}taxes`, {
@@ -96,7 +95,6 @@ export async function generateInvoice(order) {
 
   const taxMap = { 23: 1, 13: 2, 6: 3, 0: 4 };
 
-  // Get discounts
   const discountData = Discounts(order);
   const discountOnly = discountData.discountOnly;
   const subtotalProductsWithVat = discountData.subtotalProductsWithVat;
@@ -140,7 +138,6 @@ export async function generateInvoice(order) {
         : defaultTaxRate
       : 0;
 
-    // Treat unitPrice as VAT-exclusive if taxLines exists, else VAT-inclusive
     const originalPriceExclTax =
       isTaxable && item.taxLines?.length > 0
         ? parseFloat(item.unitPrice)
@@ -152,7 +149,6 @@ export async function generateInvoice(order) {
       ? parseFloat(item.originalUnitPriceSet.shopMoney.amount)
       : originalPriceExclTax * (1 + taxRate / 100);
 
-    // Safely extract productId
     let productId;
     try {
       if (typeof item.productId !== "string" || !item.productId.includes("/")) {
@@ -219,7 +215,6 @@ export async function generateInvoice(order) {
     });
   }
 
-  // Process shipping
   let totalShippingExclTax = getMonetaryValue(
     order.shippingLine?.price,
     "shippingLine",
@@ -228,7 +223,6 @@ export async function generateInvoice(order) {
     ? order.shippingLine.taxLines[0].rate * 100
     : defaultTaxRate;
 
-  // Check if all line items have a tax rate of 0%
   const allProductsZeroTax = order.lineItems.every((item) => {
     const isTaxable = item.taxable ?? true;
     const taxRate = isTaxable
@@ -243,7 +237,6 @@ export async function generateInvoice(order) {
     return taxRate === 0;
   });
 
-  // If all products have 0% tax, set shipping tax to 0%
   if (allProductsZeroTax) {
     shippingTaxRate = 0;
   }

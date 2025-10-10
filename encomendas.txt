@@ -3,5 +3,5 @@ sho-jc1030 -> 1 + 1 + portes (7€)  (TOTAL = 2 236,08 €)
 sho-jc1031 -> 1 + 1 + portes (10€) + Desconto Geral (5%)  (TOTAL = 1 589,73 €)
 sho-jc1032 -> 1(iva0) + portes (13€)  (TOTAL = 38,00 €) //se todos os produtos da encomenda ter iva 0, os portes tem iva 0 
 sho-jc1033 -> Teste front office
-sho-js1034 -> 3 + desconto automatico (4€ distribuido em 2 produtos 2,67 e 1,33) + portes (2€) (TOTAL = 65,19 €)
-
+sho-jc1034 -> 3 + desconto automatico (4€ distribuido em 2 produtos 2,67 e 1,33) + portes (2€) (TOTAL = 65,19 €)
+sho-jc1035 -> 1 + Portes ( 100% gratis feito pelo front) 

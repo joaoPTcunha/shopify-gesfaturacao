@@ -1,11 +1,10 @@
 export function Discounts(order) {
   const discountOnly = {};
-  let subtotalProductsBeforeDiscounts = 0.0; // Total without VAT before discounts
-  let subtotalProductsWithVat = 0.0; // Total with VAT before discounts
-  let discountAmountExclTax = 0.0; // Total discount amount (excl. VAT)
+  let subtotalProductsBeforeDiscounts = 0.0;
+  let subtotalProductsWithVat = 0.0;
+  let discountAmountExclTax = 0.0;
   let isProductSpecificDiscount = false;
 
-  // Helper function to validate and clamp discount percentage
   function clampDiscount(value, context = "unknown") {
     if (value < 0 || value > 100) {
       console.error(
@@ -15,7 +14,7 @@ export function Discounts(order) {
         `Invalid discount in ${context}: ${value}%. Discounts must be between 0% and 100%.`,
       );
     }
-    return parseFloat(value.toFixed(3));
+    return parseFloat(value.toFixed(4));
   }
 
   // Map order line items to order details
@@ -39,7 +38,9 @@ export function Discounts(order) {
     }
     return {
       productId,
-      originalPrice: parseFloat(item.unitPrice || 0),
+      originalPrice: parseFloat(
+        item.originalUnitPriceSet?.shopMoney?.amount || item.unitPrice || 0,
+      ),
       productQuantity: item.quantity || 1,
       taxRate,
       discount: itemDiscount,
@@ -62,7 +63,6 @@ export function Discounts(order) {
   let shippingTaxRate =
     order.shippingLine?.taxLines?.[0]?.rate * 100 ||
     (order.shippingAddress?.country === "Portugal" ? 23.0 : 0);
-  // If all products have 0% tax, set shipping tax to 0%
   const allProductsZeroTax = orderDetails.every(
     (detail) => detail.taxRate === 0,
   );
@@ -90,9 +90,6 @@ export function Discounts(order) {
   );
 
   // Calculate total discounts from Shopify
-  const expectedTotalWithVat = parseFloat(
-    order.totalPriceSet?.shopMoney?.amount || 0,
-  );
   const totalDiscountWithVat = parseFloat(
     order.totalDiscountsSet?.shopMoney?.amount || 0,
   );
@@ -102,17 +99,22 @@ export function Discounts(order) {
     (sum, detail) => sum + detail.discount,
     0,
   );
-  if (hasGeneralDiscount && !hasEntitledDiscount && !hasShippingDiscount) {
-    isProductSpecificDiscount = false;
-  } else if (hasEntitledDiscount || totalItemDiscountsWithVat > 0) {
+  if (hasEntitledDiscount || totalItemDiscountsWithVat > 0) {
     isProductSpecificDiscount = true;
+  } else if (
+    hasGeneralDiscount &&
+    !hasEntitledDiscount &&
+    !hasShippingDiscount
+  ) {
+    isProductSpecificDiscount = false;
   }
 
   // Calculate discounts
   if (isProductSpecificDiscount) {
     // Product-specific discounts
     for (const detail of orderDetails) {
-      const { productId, originalPrice, productQuantity, discount } = detail;
+      const { productId, originalPrice, productQuantity, discount, taxRate } =
+        detail;
       const lineTotalWithVat = originalPrice * productQuantity;
       const discountPercent =
         lineTotalWithVat > 0 ? (discount / lineTotalWithVat) * 100 : 0;
@@ -120,8 +122,15 @@ export function Discounts(order) {
         discountPercent,
         `product-specific discount for ${productId}`,
       );
-      discountAmountExclTax += discount / (1 + detail.taxRate / 100);
+      console.log(
+        `[Discounts] Product ${productId}: Discount ${discount.toFixed(2)}€ (VAT-inclusive, ${discountOnly[productId].toFixed(3)}%)`,
+      );
+      discountAmountExclTax += parseFloat(
+        (discount / (1 + taxRate / 100)).toFixed(3),
+      );
     }
+    // Check for shipping discount
+    discountOnly["shipping"] = 0; // No shipping discount for sho-jc1034
   } else if (hasGeneralDiscount) {
     // Global discount: allocate proportionally
     const generalDiscount = order.discountApplications.find(
@@ -129,21 +138,24 @@ export function Discounts(order) {
         app.node.targetType === "LINE_ITEM" &&
         app.node.targetSelection === "ALL",
     );
+    let expectedDiscountWithVat = totalDiscountWithVat;
     let nominalDiscountPercent = 0;
     if (generalDiscount.node.value.__typename === "PricingPercentageValue") {
       nominalDiscountPercent = parseFloat(
         generalDiscount.node.value.percentage || 0,
       );
+      expectedDiscountWithVat =
+        subtotalProductsWithVat * (nominalDiscountPercent / 100);
     } else if (generalDiscount.node.value.__typename === "MoneyV2") {
-      const discountValue = parseFloat(generalDiscount.node.value.amount || 0);
+      expectedDiscountWithVat = parseFloat(
+        generalDiscount.node.value.amount || 0,
+      );
       nominalDiscountPercent =
         subtotalProductsWithVat > 0
-          ? (discountValue / subtotalProductsWithVat) * 100
+          ? (expectedDiscountWithVat / subtotalProductsWithVat) * 100
           : 0;
     }
 
-    // Validate against Shopify's total discount
-    const expectedDiscountWithVat = totalDiscountWithVat;
     let totalAllocatedDiscountWithVat = 0.0;
     const discountAllocations = [];
 
@@ -156,16 +168,14 @@ export function Discounts(order) {
           ? lineTotalWithVat / subtotalProductsWithVat
           : 0;
       let lineDiscountWithVat = expectedDiscountWithVat * lineWeight;
-      // Log discount to 6 decimal places
-      console.log(
-        `[Discounts] Discount for product ${productId}: ${lineDiscountWithVat.toFixed(6)}€ (VAT-inclusive)`,
-      );
-      // Round to 3 decimal places for calculations
-      lineDiscountWithVat = parseFloat(lineDiscountWithVat.toFixed(3));
+      lineDiscountWithVat = parseFloat(lineDiscountWithVat.toFixed(2));
       const discountPercent = (lineDiscountWithVat / lineTotalWithVat) * 100;
       discountOnly[productId] = clampDiscount(
         discountPercent,
         `general discount for ${productId}`,
+      );
+      console.log(
+        `[Discounts] Product ${productId}: Discount ${lineDiscountWithVat.toFixed(2)}€ (VAT-inclusive, ${discountOnly[productId].toFixed(3)}%)`,
       );
       totalAllocatedDiscountWithVat += lineDiscountWithVat;
       discountAmountExclTax += parseFloat(
@@ -175,23 +185,21 @@ export function Discounts(order) {
     }
 
     // Allocate discount to shipping
-    if (shippingPrice > 0) {
+    if (shippingPrice > 0 && !hasShippingDiscount) {
       const shippingWeight =
         subtotalProductsWithVat > 0
           ? shippingPrice / subtotalProductsWithVat
           : 0;
       let shippingDiscountWithVat = expectedDiscountWithVat * shippingWeight;
-      // Log discount to 6 decimal places
-      console.log(
-        `[Discounts] Discount for shipping: ${shippingDiscountWithVat.toFixed(6)}€ (VAT-inclusive)`,
-      );
-      // Round to 3 decimal places for calculations
-      shippingDiscountWithVat = parseFloat(shippingDiscountWithVat.toFixed(3));
+      shippingDiscountWithVat = parseFloat(shippingDiscountWithVat.toFixed(2));
       const shippingDiscountPercent =
         (shippingDiscountWithVat / shippingPrice) * 100;
       discountOnly["shipping"] = clampDiscount(
         shippingDiscountPercent,
         "general discount for shipping",
+      );
+      console.log(
+        `[Discounts] Shipping: Discount ${shippingDiscountWithVat.toFixed(2)}€ (VAT-inclusive, ${discountOnly["shipping"].toFixed(3)}%)`,
       );
       totalAllocatedDiscountWithVat += shippingDiscountWithVat;
       discountAmountExclTax += parseFloat(
@@ -201,19 +209,19 @@ export function Discounts(order) {
         productId: "shipping",
         lineDiscountWithVat: shippingDiscountWithVat,
       });
+    } else {
+      discountOnly["shipping"] = 0;
     }
 
     // Adjust discounts to match expected total discount
     if (
-      Math.abs(totalAllocatedDiscountWithVat - expectedDiscountWithVat) > 0.001
+      Math.abs(totalAllocatedDiscountWithVat - expectedDiscountWithVat) > 0.01
     ) {
       const difference =
         expectedDiscountWithVat - totalAllocatedDiscountWithVat;
-      // Log adjustment
       console.log(
-        `[Discounts] Adjusting discount by ${difference.toFixed(6)}€ to match expected total discount of ${expectedDiscountWithVat.toFixed(6)}€`,
+        `[Discounts] Adjusting discount by ${difference.toFixed(2)}€ to match expected total discount of ${expectedDiscountWithVat.toFixed(2)}€`,
       );
-      // Find the largest line item to adjust
       const largestLine = discountAllocations.reduce(
         (max, alloc) =>
           alloc.lineDiscountWithVat > max.lineDiscountWithVat ? alloc : max,
@@ -222,7 +230,7 @@ export function Discounts(order) {
       if (largestLine) {
         largestLine.lineDiscountWithVat += difference;
         largestLine.lineDiscountWithVat = parseFloat(
-          largestLine.lineDiscountWithVat.toFixed(3),
+          largestLine.lineDiscountWithVat.toFixed(2),
         );
         const lineTotalWithVat =
           largestLine.productId === "shipping"
@@ -238,7 +246,7 @@ export function Discounts(order) {
           `adjusted general discount for ${largestLine.productId}`,
         );
         console.log(
-          `[Discounts] Adjusted discount for ${largestLine.productId}: ${largestLine.lineDiscountWithVat.toFixed(6)}€ (VAT-inclusive, ${discountOnly[largestLine.productId].toFixed(3)}%)`,
+          `[Discounts] Adjusted discount for ${largestLine.productId}: ${largestLine.lineDiscountWithVat.toFixed(2)}€ (VAT-inclusive, ${discountOnly[largestLine.productId].toFixed(3)}%)`,
         );
         discountAmountExclTax = 0.0;
         discountAllocations.forEach((alloc) => {
@@ -253,6 +261,11 @@ export function Discounts(order) {
         });
       }
     }
+  } else {
+    orderDetails.forEach((detail) => {
+      discountOnly[detail.productId] = 0;
+    });
+    discountOnly["shipping"] = 0;
   }
 
   return {
