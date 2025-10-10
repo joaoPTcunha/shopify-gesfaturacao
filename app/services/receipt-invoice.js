@@ -325,7 +325,7 @@ export async function generateInvoice(order) {
         );
         adjustedGlobalPercent =
           (discountValue / totalBeforeDiscountsWithVat) * 100;
-        adjustedGlobalPercent = parseFloat(adjustedGlobalPercent.toFixed(3));
+        adjustedGlobalPercent = parseFloat(adjustedGlobalPercent.toFixed(4));
       }
     }
   }
@@ -340,7 +340,7 @@ export async function generateInvoice(order) {
     if (totalBaseExclTax + totalBaseVat > 0) {
       adjustedGlobalPercent =
         100 * (1 - expectedTotalWithVat / (totalBaseExclTax + totalBaseVat));
-      adjustedGlobalPercent = parseFloat(adjustedGlobalPercent.toFixed(3));
+      adjustedGlobalPercent = parseFloat(adjustedGlobalPercent.toFixed(4));
       console.log(
         `[generateInvoice] Adjusted global discount to ${adjustedGlobalPercent}% to match expected total`,
       );

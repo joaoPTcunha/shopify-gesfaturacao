@@ -18,17 +18,6 @@ export function Discounts(order) {
     return parseFloat(value.toFixed(3));
   }
 
-  // Check discountApplications for general vs. product-specific
-  const hasGeneralDiscount = order.discountApplications?.some(
-    (app) =>
-      app.node.targetType === "LINE_ITEM" && app.node.targetSelection === "ALL",
-  );
-  const hasEntitledDiscount = order.discountApplications?.some(
-    (app) =>
-      app.node.targetType === "LINE_ITEM" &&
-      app.node.targetSelection === "ENTITLED",
-  );
-
   // Map order line items to order details
   const orderDetails = order.lineItems.map((item) => {
     const productId =
@@ -39,7 +28,7 @@ export function Discounts(order) {
     const taxRate =
       item.taxLines?.[0]?.ratePercentage ||
       item.taxLines?.[0]?.rate * 100 ||
-      23.0; // Default to 23% for Portugal
+      (order.shippingAddress?.country === "Portugal" ? 23.0 : 0);
     let itemDiscount = 0;
     if (item.discountAllocations?.length > 0) {
       itemDiscount = item.discountAllocations.reduce(
@@ -57,50 +46,64 @@ export function Discounts(order) {
     };
   });
 
-  // Calculate subtotal and check if discounts are product-specific
-  let totalItemDiscountsWithVat = 0.0;
+  // Calculate subtotal for products
   for (const detail of orderDetails) {
-    const { originalPrice, productQuantity, taxRate, discount } = detail;
-
-    // Calculate line subtotal (excluding VAT, before discounts)
+    const { originalPrice, productQuantity, taxRate } = detail;
     const unitExcl =
       taxRate > 0 ? originalPrice / (1 + taxRate / 100) : originalPrice;
     const lineSubtotalExcl = unitExcl * productQuantity;
     subtotalProductsBeforeDiscounts += lineSubtotalExcl;
     const lineVat = lineSubtotalExcl * (taxRate / 100.0);
     subtotalProductsWithVat += lineSubtotalExcl + lineVat;
-    totalItemDiscountsWithVat += discount;
   }
 
-  // Determine discount type based on total value
-  const totalValue = parseFloat(order.totalValue || 0);
-  const expectedTotalBeforeDiscounts = order.lineItems.reduce(
-    (sum, item) => sum + parseFloat(item.unitPrice || 0) * item.quantity,
+  // Add shipping to subtotal if present
+  const shippingPrice = parseFloat(order.shippingLine?.price || 0);
+  let shippingTaxRate =
+    order.shippingLine?.taxLines?.[0]?.rate * 100 ||
+    (order.shippingAddress?.country === "Portugal" ? 23.0 : 0);
+  // If all products have 0% tax, set shipping tax to 0%
+  const allProductsZeroTax = orderDetails.every(
+    (detail) => detail.taxRate === 0,
+  );
+  if (allProductsZeroTax) {
+    shippingTaxRate = 0;
+  }
+  const shippingExclTax = shippingPrice / (1 + shippingTaxRate / 100);
+  subtotalProductsWithVat += shippingPrice;
+  subtotalProductsBeforeDiscounts += shippingExclTax;
+
+  // Check discountApplications for general vs. product-specific
+  const hasGeneralDiscount = order.discountApplications?.some(
+    (app) =>
+      app.node.targetType === "LINE_ITEM" && app.node.targetSelection === "ALL",
+  );
+  const hasEntitledDiscount = order.discountApplications?.some(
+    (app) =>
+      app.node.targetType === "LINE_ITEM" &&
+      app.node.targetSelection === "ENTITLED",
+  );
+  const hasShippingDiscount = order.discountApplications?.some(
+    (app) =>
+      app.node.targetType === "SHIPPING_LINE" &&
+      app.node.targetSelection === "ALL",
+  );
+
+  // Calculate total discounts from Shopify
+  const expectedTotalWithVat = parseFloat(
+    order.totalPriceSet?.shopMoney?.amount || 0,
+  );
+  const totalDiscountWithVat = parseFloat(
+    order.totalDiscountsSet?.shopMoney?.amount || 0,
+  );
+
+  // Determine discount type
+  let totalItemDiscountsWithVat = orderDetails.reduce(
+    (sum, detail) => sum + detail.discount,
     0,
   );
-  const expectedDiscountWithVat = expectedTotalBeforeDiscounts - totalValue;
-
-  // Check if general discount matches total
-  if (hasGeneralDiscount && !hasEntitledDiscount) {
-    const generalDiscount = order.discountApplications.find(
-      (app) =>
-        app.node.targetType === "LINE_ITEM" &&
-        app.node.targetSelection === "ALL",
-    );
-    let generalDiscountAmount = 0.0;
-    if (generalDiscount.node.value.__typename === "PricingPercentageValue") {
-      generalDiscountAmount =
-        (generalDiscount.node.value.percentage / 100) * subtotalProductsWithVat;
-    } else if (generalDiscount.node.value.__typename === "MoneyV2") {
-      generalDiscountAmount = parseFloat(
-        generalDiscount.node.value.amount || 0,
-      );
-    }
-    if (Math.abs(generalDiscountAmount - expectedDiscountWithVat) < 0.01) {
-      isProductSpecificDiscount = false;
-    } else if (totalItemDiscountsWithVat > 0) {
-      isProductSpecificDiscount = true;
-    }
+  if (hasGeneralDiscount && !hasEntitledDiscount && !hasShippingDiscount) {
+    isProductSpecificDiscount = false;
   } else if (hasEntitledDiscount || totalItemDiscountsWithVat > 0) {
     isProductSpecificDiscount = true;
   }
@@ -120,36 +123,135 @@ export function Discounts(order) {
       discountAmountExclTax += discount / (1 + detail.taxRate / 100);
     }
   } else if (hasGeneralDiscount) {
-    // General discounts
+    // Global discount: allocate proportionally
     const generalDiscount = order.discountApplications.find(
       (app) =>
         app.node.targetType === "LINE_ITEM" &&
         app.node.targetSelection === "ALL",
     );
-    let totalDiscountWithVat = 0.0;
+    let nominalDiscountPercent = 0;
     if (generalDiscount.node.value.__typename === "PricingPercentageValue") {
-      const discountValue = generalDiscount.node.value.percentage || 0;
-      totalDiscountWithVat = (discountValue / 100.0) * subtotalProductsWithVat;
+      nominalDiscountPercent = parseFloat(
+        generalDiscount.node.value.percentage || 0,
+      );
     } else if (generalDiscount.node.value.__typename === "MoneyV2") {
-      totalDiscountWithVat = parseFloat(generalDiscount.node.value.amount || 0);
+      const discountValue = parseFloat(generalDiscount.node.value.amount || 0);
+      nominalDiscountPercent =
+        subtotalProductsWithVat > 0
+          ? (discountValue / subtotalProductsWithVat) * 100
+          : 0;
     }
 
-    const weightedTaxRate =
-      subtotalProductsBeforeDiscounts > 0
-        ? (subtotalProductsWithVat - subtotalProductsBeforeDiscounts) /
-          subtotalProductsBeforeDiscounts
-        : 0.23;
-    discountAmountExclTax = totalDiscountWithVat / (1 + weightedTaxRate);
-    const discountPercent =
-      subtotalProductsBeforeDiscounts > 0
-        ? (discountAmountExclTax / subtotalProductsBeforeDiscounts) * 100.0
-        : 0.0;
+    // Validate against Shopify's total discount
+    const expectedDiscountWithVat = totalDiscountWithVat;
+    let totalAllocatedDiscountWithVat = 0.0;
+    const discountAllocations = [];
 
+    // Allocate discount to products
     for (const detail of orderDetails) {
-      discountOnly[detail.productId] = clampDiscount(
-        discountPercent,
-        `general discount for ${detail.productId}`,
+      const { productId, originalPrice, productQuantity, taxRate } = detail;
+      const lineTotalWithVat = originalPrice * productQuantity;
+      const lineWeight =
+        subtotalProductsWithVat > 0
+          ? lineTotalWithVat / subtotalProductsWithVat
+          : 0;
+      let lineDiscountWithVat = expectedDiscountWithVat * lineWeight;
+      // Log discount to 6 decimal places
+      console.log(
+        `[Discounts] Discount for product ${productId}: ${lineDiscountWithVat.toFixed(6)}€ (VAT-inclusive)`,
       );
+      // Round to 3 decimal places for calculations
+      lineDiscountWithVat = parseFloat(lineDiscountWithVat.toFixed(3));
+      const discountPercent = (lineDiscountWithVat / lineTotalWithVat) * 100;
+      discountOnly[productId] = clampDiscount(
+        discountPercent,
+        `general discount for ${productId}`,
+      );
+      totalAllocatedDiscountWithVat += lineDiscountWithVat;
+      discountAmountExclTax += parseFloat(
+        (lineDiscountWithVat / (1 + taxRate / 100)).toFixed(3),
+      );
+      discountAllocations.push({ productId, lineDiscountWithVat });
+    }
+
+    // Allocate discount to shipping
+    if (shippingPrice > 0) {
+      const shippingWeight =
+        subtotalProductsWithVat > 0
+          ? shippingPrice / subtotalProductsWithVat
+          : 0;
+      let shippingDiscountWithVat = expectedDiscountWithVat * shippingWeight;
+      // Log discount to 6 decimal places
+      console.log(
+        `[Discounts] Discount for shipping: ${shippingDiscountWithVat.toFixed(6)}€ (VAT-inclusive)`,
+      );
+      // Round to 3 decimal places for calculations
+      shippingDiscountWithVat = parseFloat(shippingDiscountWithVat.toFixed(3));
+      const shippingDiscountPercent =
+        (shippingDiscountWithVat / shippingPrice) * 100;
+      discountOnly["shipping"] = clampDiscount(
+        shippingDiscountPercent,
+        "general discount for shipping",
+      );
+      totalAllocatedDiscountWithVat += shippingDiscountWithVat;
+      discountAmountExclTax += parseFloat(
+        (shippingDiscountWithVat / (1 + shippingTaxRate / 100)).toFixed(3),
+      );
+      discountAllocations.push({
+        productId: "shipping",
+        lineDiscountWithVat: shippingDiscountWithVat,
+      });
+    }
+
+    // Adjust discounts to match expected total discount
+    if (
+      Math.abs(totalAllocatedDiscountWithVat - expectedDiscountWithVat) > 0.001
+    ) {
+      const difference =
+        expectedDiscountWithVat - totalAllocatedDiscountWithVat;
+      // Log adjustment
+      console.log(
+        `[Discounts] Adjusting discount by ${difference.toFixed(6)}€ to match expected total discount of ${expectedDiscountWithVat.toFixed(6)}€`,
+      );
+      // Find the largest line item to adjust
+      const largestLine = discountAllocations.reduce(
+        (max, alloc) =>
+          alloc.lineDiscountWithVat > max.lineDiscountWithVat ? alloc : max,
+        discountAllocations[0],
+      );
+      if (largestLine) {
+        largestLine.lineDiscountWithVat += difference;
+        largestLine.lineDiscountWithVat = parseFloat(
+          largestLine.lineDiscountWithVat.toFixed(3),
+        );
+        const lineTotalWithVat =
+          largestLine.productId === "shipping"
+            ? shippingPrice
+            : orderDetails.find((d) => d.productId === largestLine.productId)
+                .originalPrice *
+              orderDetails.find((d) => d.productId === largestLine.productId)
+                .productQuantity;
+        const adjustedDiscountPercent =
+          (largestLine.lineDiscountWithVat / lineTotalWithVat) * 100;
+        discountOnly[largestLine.productId] = clampDiscount(
+          adjustedDiscountPercent,
+          `adjusted general discount for ${largestLine.productId}`,
+        );
+        console.log(
+          `[Discounts] Adjusted discount for ${largestLine.productId}: ${largestLine.lineDiscountWithVat.toFixed(6)}€ (VAT-inclusive, ${discountOnly[largestLine.productId].toFixed(3)}%)`,
+        );
+        discountAmountExclTax = 0.0;
+        discountAllocations.forEach((alloc) => {
+          const taxRate =
+            alloc.productId === "shipping"
+              ? shippingTaxRate
+              : orderDetails.find((d) => d.productId === alloc.productId)
+                  .taxRate;
+          discountAmountExclTax += parseFloat(
+            (alloc.lineDiscountWithVat / (1 + taxRate / 100)).toFixed(3),
+          );
+        });
+      }
     }
   }
 
