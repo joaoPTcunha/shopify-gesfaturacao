@@ -21,6 +21,16 @@ export async function fetchShippingProductData(order, apiUrl, token) {
   }
 
   try {
+    const allProductsZeroVat =
+      order.lineItems?.every((item) => {
+        const rate =
+          item.taxLines?.[0]?.ratePercentage ||
+          (item.taxLines?.[0]?.rate ?? 0) * 100;
+        const taxable =
+          item.variant?.taxable !== false && item.taxable !== false;
+        return !taxable || parseFloat(rate || 0) === 0;
+      }) ?? false;
+
     const shippingProductResponse = await fetch(
       `${apiUrl}products/${login.id_product_shipping}`,
       {
@@ -41,13 +51,31 @@ export async function fetchShippingProductData(order, apiUrl, token) {
     }
 
     const shippingProduct = await shippingProductResponse.json();
-    const shippingTaxId = shippingProduct.data?.tax?.id || 1;
-    const shippingTaxRate =
-      order.shippingLine?.taxLines?.[0]?.ratePercentage || 23.0;
+
+    let shippingTaxRate =
+      order.shippingLine?.taxLines?.[0]?.ratePercentage ||
+      (order.shippingLine?.taxLines?.[0]?.rate ?? 0) * 100 ||
+      23.0;
+
+    let shippingTaxId = shippingProduct.data?.tax?.id || 1;
+
+    if (allProductsZeroVat) {
+      shippingTaxRate = 0;
+      shippingTaxId = 4;
+      console.log(
+        "[fetchShippingProductData] All products are VAT 0 → setting shipping VAT 0",
+      );
+    }
+
+    // 💰 5. Calcular preço sem IVA
     const shippingPriceWithVat = parseFloat(order.shippingLine.price);
     const shippingPriceExclTax = parseFloat(
-      (shippingPriceWithVat / (1 + shippingTaxRate / 100.0)).toFixed(3),
+      (shippingTaxRate > 0
+        ? shippingPriceWithVat / (1 + shippingTaxRate / 100.0)
+        : shippingPriceWithVat
+      ).toFixed(3),
     );
+
     const shippingDescription =
       shippingProduct.data?.description || "Custos de Envio";
 

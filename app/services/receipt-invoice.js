@@ -227,6 +227,27 @@ export async function generateInvoice(order) {
   let shippingTaxRate = order.shippingLine?.taxLines?.[0]?.rate
     ? order.shippingLine.taxLines[0].rate * 100
     : defaultTaxRate;
+
+  // Check if all line items have a tax rate of 0%
+  const allProductsZeroTax = order.lineItems.every((item) => {
+    const isTaxable = item.taxable ?? true;
+    const taxRate = isTaxable
+      ? item.taxLines?.length > 0
+        ? item.taxLines[0].ratePercentage
+          ? parseFloat(item.taxLines[0].ratePercentage)
+          : item.taxLines[0].rate
+            ? item.taxLines[0].rate * 100
+            : defaultTaxRate
+        : defaultTaxRate
+      : 0;
+    return taxRate === 0;
+  });
+
+  // If all products have 0% tax, set shipping tax to 0%
+  if (allProductsZeroTax) {
+    shippingTaxRate = 0;
+  }
+
   let totalShippingWithVat =
     totalShippingExclTax * (1 + shippingTaxRate / 100.0);
   let isFreeShipping = false;
@@ -239,20 +260,16 @@ export async function generateInvoice(order) {
     login.token,
   );
   if (shippingData) {
-    isFreeShipping =
-      order.discountApplications?.some(
-        (app) =>
-          app.node.targetType === "SHIPPING_LINE" &&
-          app.node.targetSelection === "ALL" &&
-          ((app.node.value?.__typename === "PricingPercentageValue" &&
-            app.node.value.percentage === 100) ||
-            (app.node.value?.__typename === "MoneyV2" &&
-              parseFloat(app.node.value.amount) ===
-                getMonetaryValue(
-                  order.shippingLine?.originalPrice,
-                  "shippingLine",
-                ))),
-      ) || false;
+    isFreeShipping = order.discountApplications?.some(
+      (app) =>
+        app.node.targetType === "SHIPPING_LINE" &&
+        app.node.targetSelection === "ALL" &&
+        ((app.node.value?.__typename === "PricingPercentageValue" &&
+          app.node.value.percentage === 100) ||
+          (app.node.value?.__typename === "MoneyV2" &&
+            getMonetaryValue(app.node.value, "shippingDiscount") ===
+              totalShippingWithVat)),
+    );
 
     if (isFreeShipping) {
       shippingDiscountPercent = 100.0;
@@ -271,6 +288,7 @@ export async function generateInvoice(order) {
       discount: shippingDiscountPercent,
       retention: 0.0,
       exemption: shippingExemptionId,
+      unit: 1,
       type: "S",
     };
     lines.push(shippingLine);
