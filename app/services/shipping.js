@@ -13,9 +13,20 @@ export async function fetchShippingProductData(order, apiUrl, token) {
     return null;
   }
 
-  if (!order.shippingLine?.price || order.shippingLine.price <= 0) {
+  const hasShippingDiscount = order.discountApplications?.some(
+    (app) =>
+      app.node.targetType === "SHIPPING_LINE" &&
+      app.node.targetSelection === "ALL" &&
+      ((app.node.value?.__typename === "PricingPercentageValue" &&
+        app.node.value.percentage === 100) ||
+        (app.node.value?.__typename === "MoneyV2" &&
+          parseFloat(app.node.value.amount) >=
+            parseFloat(order.shippingLine?.price || 0))),
+  );
+
+  if (!order.shippingLine?.price && !hasShippingDiscount) {
     console.warn(
-      "[fetchShippingProductData] No valid shipping price found in order, skipping shipping line item",
+      "[fetchShippingProductData] No valid shipping price found in order and no 100% discount, skipping shipping line item",
     );
     return null;
   }
@@ -66,7 +77,8 @@ export async function fetchShippingProductData(order, apiUrl, token) {
         "[fetchShippingProductData] All products are VAT 0 → setting shipping VAT 0",
       );
     }
-    const shippingPriceWithVat = parseFloat(order.shippingLine.price);
+
+    const shippingPriceWithVat = parseFloat(order.shippingLine?.price || 0);
     const shippingPriceExclTax = parseFloat(
       (shippingTaxRate > 0
         ? shippingPriceWithVat / (1 + shippingTaxRate / 100.0)
@@ -77,6 +89,8 @@ export async function fetchShippingProductData(order, apiUrl, token) {
     const shippingDescription =
       shippingProduct.data?.description || "Custos de Envio";
 
+    const shippingDiscount = hasShippingDiscount ? 100 : 0;
+
     return {
       lineItem: {
         id: parseInt(login.id_product_shipping),
@@ -84,7 +98,7 @@ export async function fetchShippingProductData(order, apiUrl, token) {
         quantity: 1,
         price: shippingPriceExclTax,
         description: shippingDescription,
-        discount: 0,
+        discount: shippingDiscount,
         retention: 0,
         exemption_reason: shippingTaxId === 4 ? "M10" : "",
         type: "S",

@@ -245,13 +245,12 @@ export async function generateInvoice(order) {
         ((app.node.value?.__typename === "PricingPercentageValue" &&
           app.node.value.percentage === 100) ||
           (app.node.value?.__typename === "MoneyV2" &&
-            getMonetaryValue(app.node.value, "shippingDiscount") ===
+            getMonetaryValue(app.node.value, "shippingDiscount") >=
               totalShippingWithVat)),
     );
 
     if (isFreeShipping) {
       shippingDiscountPercent = 100.0;
-      totalShippingExclTax = 0.0;
     } else if (isProductSpecificDiscount) {
       shippingDiscountPercent = discountOnly["shipping"] || 0.0;
     } else {
@@ -259,7 +258,7 @@ export async function generateInvoice(order) {
     }
 
     const shippingTaxId = taxMap[shippingTaxRate] || 1;
-    const shippingExemptionId = shippingTaxRate === 0 ? 1 : 0;
+    const shippingExemptionId = shippingTaxRate === 0 ? 5 : 0;
 
     const shippingLine = {
       id: parseInt(shippingData.lineItem.id),
@@ -275,8 +274,11 @@ export async function generateInvoice(order) {
     };
     lines.push(shippingLine);
 
-    totalBaseExclTax += totalShippingExclTax;
-    totalBaseVat += totalShippingExclTax * (shippingTaxRate / 100.0);
+    const shippingAfterDiscountExcl =
+      originalShippingExclTax * (1 - shippingDiscountPercent / 100.0);
+    totalBaseExclTax += shippingAfterDiscountExcl;
+    totalBaseVat += shippingAfterDiscountExcl * (shippingTaxRate / 100.0);
+    totalDiscountExclTax += originalShippingExclTax - shippingAfterDiscountExcl;
   }
 
   // Calculate totals
@@ -316,7 +318,7 @@ export async function generateInvoice(order) {
     // Override with invoiceLevelDiscount if available
     if (invoiceLevelDiscount > 0) {
       const totalExclTax =
-        totalBaseExclTax + (isFreeShipping ? 0 : totalShippingExclTax);
+        totalBaseExclTax + (isFreeShipping ? 0 : originalShippingExclTax);
       adjustedGlobalPercent =
         totalExclTax > 0 ? (invoiceLevelDiscount / totalExclTax) * 100 : 0;
       adjustedGlobalPercent = parseFloat(adjustedGlobalPercent.toFixed(4));
@@ -346,6 +348,9 @@ export async function generateInvoice(order) {
     const discountAmountWithVat =
       (adjustedGlobalPercent / 100) * (totalBaseExclTax + totalBaseVat);
     observations += `\nGeneral discount applied: ${discountAmountWithVat.toFixed(2)} ${order.currency || "EUR"} (Global Discount: ${adjustedGlobalPercent}%)`;
+  }
+  if (isFreeShipping) {
+    observations += `\nFree shipping applied: 100% discount on shipping costs`;
   }
 
   // Prepare invoice payload

@@ -2,6 +2,10 @@ import { getMonetaryValue } from "../utils/getMonetaryValue";
 import { clampDiscount } from "../utils/clampDiscount";
 
 export function Discounts(order) {
+  console.log(
+    `[getOrderDiscounts] Calculating discounts for order ${order.name || "undefined"}`,
+  );
+
   const discountOnly = {};
   let subtotalProductsBeforeDiscounts = 0.0;
   let subtotalProductsWithVat = 0.0;
@@ -57,6 +61,9 @@ export function Discounts(order) {
     subtotalProductsBeforeDiscounts += lineSubtotalExcl;
     const lineVat = lineSubtotalExcl * (taxRate / 100.0);
     subtotalProductsWithVat += lineSubtotalExcl + lineVat;
+    console.log(
+      `[getOrderDiscounts] Product ID: ${detail.productId} | Original Price (excl. VAT): ${originalPrice.toFixed(3)} | Quantity: ${detail.productQuantity} | Tax Rate: ${taxRate}% | Line Subtotal (excl. VAT): ${lineSubtotalExcl.toFixed(3)} | Line VAT: ${lineVat.toFixed(3)} | Line Discount (excl. VAT): ${detail.discount.toFixed(3)}`,
+    );
   }
 
   // Add shipping to subtotal if present
@@ -120,14 +127,18 @@ export function Discounts(order) {
     "totalDiscountsSet",
   );
 
-  // Determine discount type (prioritize general discount)
+  // Determine discount type
   let totalItemDiscountsExclTax = orderDetails.reduce(
     (sum, detail) => sum + detail.discount,
     0,
   );
   if (hasGeneralDiscount && !hasEntitledDiscount && !hasShippingDiscount) {
     isProductSpecificDiscount = false;
-  } else if (hasEntitledDiscount || totalItemDiscountsExclTax > 0) {
+  } else if (
+    hasEntitledDiscount ||
+    totalItemDiscountsExclTax > 0 ||
+    hasShippingDiscount
+  ) {
     isProductSpecificDiscount = true;
   }
 
@@ -250,6 +261,10 @@ export function Discounts(order) {
     console.log(`[DescontoIndividual] No individual discounts applied.`);
   }
 
+  // Final discount summary
+  console.log(
+    `[getOrderDiscounts] Final Discount Summary for Order ${order.name || "undefined"}:`,
+  );
   if (isProductSpecificDiscount) {
     console.log(`[DescontoIndividual] Individual Discounts:`);
     orderDetails.forEach((detail) => {
@@ -271,6 +286,10 @@ export function Discounts(order) {
   } else {
     console.log(`[getOrderDiscounts] No discounts applied.`);
   }
+
+  console.log(
+    `[getOrderDiscounts] discountOnly: ${JSON.stringify(discountOnly)} | isProductSpecificDiscount: ${isProductSpecificDiscount} | discountAmountExclTax: ${discountAmountExclTax} | invoiceLevelDiscount: ${invoiceLevelDiscount}`,
+  );
 
   return {
     discountOnly,
