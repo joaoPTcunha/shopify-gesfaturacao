@@ -4,27 +4,9 @@ import { fetchProductDataFromOrder } from "./product";
 import { fetchShippingProductData } from "./shipping";
 import { sendEmail } from "./sendEmail";
 import { Discounts } from "./discounts";
+import { getMonetaryValue } from "../utils/getMonetaryValue";
+import { clampDiscount } from "../utils/clampDiscount";
 import { downloadInvoicePDF } from "./download";
-
-// Helper function to safely extract monetary value
-function getMonetaryValue(value, fieldName = "unknown") {
-  if (value === null || value === undefined) {
-    console.warn(
-      `[generateInvoice] ${fieldName} is null or undefined, defaulting to 0`,
-    );
-    return 0;
-  }
-  if (typeof value === "object" && "amount" in value) {
-    return parseFloat(value.amount) || 0;
-  }
-  if (typeof value === "string" || typeof value === "number") {
-    return parseFloat(value) || 0;
-  }
-  console.warn(
-    `[generateInvoice] Invalid ${fieldName} format: ${JSON.stringify(value)}, defaulting to 0`,
-  );
-  return 0;
-}
 
 export async function generateInvoice(order) {
   if (!order.id || !order.orderNumber) {
@@ -99,7 +81,12 @@ export async function generateInvoice(order) {
   const discountOnly = discountData.discountOnly;
   const subtotalProductsWithVat = discountData.subtotalProductsWithVat;
   const discountAmountExclTax = discountData.discountAmount;
+  const invoiceLevelDiscount = discountData.invoiceLevelDiscount;
   const isProductSpecificDiscount = discountData.isProductSpecificDiscount;
+
+  console.log(
+    `[generateInvoice] discountOnly: ${JSON.stringify(discountOnly)} | isProductSpecificDiscount: ${isProductSpecificDiscount} | discountAmountExclTax: ${discountAmountExclTax} | invoiceLevelDiscount: ${invoiceLevelDiscount}`,
+  );
 
   // Calculate line items
   const lines = [];
@@ -166,12 +153,10 @@ export async function generateInvoice(order) {
     }
 
     let totalLineDiscount = 0.0;
-    if (isProductSpecificDiscount && item.discountAllocations?.length > 0) {
-      const discountAmount = item.discountAllocations.reduce((sum, alloc) => {
-        return sum + parseFloat(alloc.allocatedAmountSet.shopMoney.amount || 0);
-      }, 0);
-      totalLineDiscount =
-        (discountAmount / (vatInclusivePrice * item.quantity)) * 100;
+    if (isProductSpecificDiscount) {
+      totalLineDiscount = discountOnly[productId] || 0.0;
+    } else {
+      totalLineDiscount = 0.0;
     }
 
     let exemptionId = 0;
@@ -267,6 +252,10 @@ export async function generateInvoice(order) {
     if (isFreeShipping) {
       shippingDiscountPercent = 100.0;
       totalShippingExclTax = 0.0;
+    } else if (isProductSpecificDiscount) {
+      shippingDiscountPercent = discountOnly["shipping"] || 0.0;
+    } else {
+      shippingDiscountPercent = 0.0;
     }
 
     const shippingTaxId = taxMap[shippingTaxRate] || 1;
@@ -278,7 +267,7 @@ export async function generateInvoice(order) {
       quantity: 1.0,
       price: parseFloat(originalShippingExclTax.toFixed(3)),
       tax: shippingTaxId,
-      discount: shippingDiscountPercent,
+      discount: parseFloat(shippingDiscountPercent.toFixed(3)),
       retention: 0.0,
       exemption: shippingExemptionId,
       unit: 1,
@@ -304,7 +293,8 @@ export async function generateInvoice(order) {
     const generalDiscount = order.discountApplications.find(
       (app) =>
         app.node.targetType === "LINE_ITEM" &&
-        app.node.targetSelection === "ALL",
+        app.node.targetSelection === "ALL" &&
+        app.node.allocationMethod === "ACROSS",
     );
     if (generalDiscount) {
       const valueType = generalDiscount.node.value.__typename;
@@ -317,9 +307,19 @@ export async function generateInvoice(order) {
           generalDiscount.node.value.amount || 0,
         );
         adjustedGlobalPercent =
-          (discountValue / totalBeforeDiscountsWithVat) * 100;
+          totalBeforeDiscountsWithVat > 0
+            ? (discountValue / totalBeforeDiscountsWithVat) * 100
+            : 0;
         adjustedGlobalPercent = parseFloat(adjustedGlobalPercent.toFixed(4));
       }
+    }
+    // Override with invoiceLevelDiscount if available
+    if (invoiceLevelDiscount > 0) {
+      const totalExclTax =
+        totalBaseExclTax + (isFreeShipping ? 0 : totalShippingExclTax);
+      adjustedGlobalPercent =
+        totalExclTax > 0 ? (invoiceLevelDiscount / totalExclTax) * 100 : 0;
+      adjustedGlobalPercent = parseFloat(adjustedGlobalPercent.toFixed(4));
     }
   }
 
@@ -342,6 +342,11 @@ export async function generateInvoice(order) {
 
   // Prepare observations
   let observations = order.note === "N/A" ? "" : order.note;
+  if (adjustedGlobalPercent > 0) {
+    const discountAmountWithVat =
+      (adjustedGlobalPercent / 100) * (totalBaseExclTax + totalBaseVat);
+    observations += `\nGeneral discount applied: ${discountAmountWithVat.toFixed(2)} ${order.currency || "EUR"} (Global Discount: ${adjustedGlobalPercent}%)`;
+  }
 
   // Prepare invoice payload
   const date = new Date().toISOString().split("T")[0];
@@ -362,7 +367,7 @@ export async function generateInvoice(order) {
     finalize: login.finalized ?? true,
     reference: order.orderNumber,
     observations,
-    discount: adjustedGlobalPercent,
+    discount: parseFloat(adjustedGlobalPercent.toFixed(4)),
   };
 
   console.log(
@@ -441,7 +446,6 @@ export async function generateInvoice(order) {
     }
   }
 
-  // Download PDF using invoiceId
   let invoiceFile = null;
   try {
     await new Promise((resolve) => setTimeout(resolve, 1000));
