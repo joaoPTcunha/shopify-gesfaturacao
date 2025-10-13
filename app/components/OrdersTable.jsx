@@ -33,6 +33,7 @@ export default function OrdersTable() {
         invoiceNumber,
         actionType,
         emailSent,
+        isFinalized,
       } = fetcher.data;
 
       if (error) {
@@ -46,13 +47,10 @@ export default function OrdersTable() {
 
       if (success && actionType === "sendEmail") {
         if (isClient) {
-          toast.success(
-            `Email enviado com sucesso para o pedido ${orderNumber}!`,
-            {
-              description: `Fatura: ${invoiceNumber}`,
-              duration: 3000,
-            },
-          );
+          toast.success(`Email enviado com sucesso!`, {
+            description: `Fatura: ${invoiceNumber}`,
+            duration: 3000,
+          });
         }
       }
 
@@ -92,9 +90,11 @@ export default function OrdersTable() {
               document.body.removeChild(link);
               window.URL.revokeObjectURL(url);
               toast.success(
-                `Download da fatura ${invoiceNumber} iniciado para o pedido ${orderNumber}!`,
+                invoiceNumber === "N/A"
+                  ? `Download da fatura rascunho iniciado!`
+                  : `Download da fatura ${invoiceNumber} iniciado!`,
                 {
-                  description: `Arquivo: ${filename}`,
+                  description: `Encomenda: ${orderNumber}`,
                   duration: 3000,
                 },
               );
@@ -109,7 +109,9 @@ export default function OrdersTable() {
             }
           } else if (actionType === "generateInvoice") {
             toast.success(
-              `Fatura ${invoiceNumber} gerada com sucesso para o pedido ${orderNumber}!`,
+              isFinalized === true
+                ? `Fatura ${invoiceNumber} gerada com sucesso para o pedido ${orderNumber}!`
+                : `Fatura rascunho ${invoiceNumber} gerada com sucesso para o pedido ${orderNumber}!`,
               {
                 duration: 3000,
               },
@@ -123,7 +125,6 @@ export default function OrdersTable() {
   const handleShowDetails = (order) => {
     if (isProcessing) return;
     setIsProcessing(true);
-    // Redirect to Shopify order page
     const orderId = order.id.replace("gid://shopify/Order/", "");
     const shopifyUrl = `https://admin.shopify.com/store/gesfaturacao-dev-teste/orders/${orderId}`;
     window.open(shopifyUrl, "_blank");
@@ -177,6 +178,8 @@ export default function OrdersTable() {
       "actionType",
       isDownload ? "downloadInvoice" : "generateInvoice",
     );
+    formData.append("orderId", orderId);
+    formData.append("orderNumber", orderNumber);
     formData.append("order", JSON.stringify(order));
 
     fetcher.submit(formData, { method: "post", action: "/ges-orders" });
@@ -196,7 +199,7 @@ export default function OrdersTable() {
     return { totalItems, subtotal };
   };
 
-  const formatAddress = (address) => {
+  /*   const formatAddress = (address) => {
     if (!address) return "N/A";
     const parts = [
       address.address1,
@@ -208,7 +211,7 @@ export default function OrdersTable() {
       address.phone ? `Tel: ${address.phone}` : "",
     ].filter(Boolean);
     return parts.join(", ") || "N/A";
-  };
+  }; */
 
   const goToPage = (page) => {
     if (page >= 1 && page <= totalPages) {
@@ -217,7 +220,7 @@ export default function OrdersTable() {
   };
 
   const currentPage = parseInt(searchParams.get("page") || "1", 10);
-  const pageSize = 20; //mudar futuramente
+  const pageSize = 20;
 
   const filteredOrders = useMemo(() => {
     if (!searchTerm) return orders;
@@ -300,11 +303,11 @@ export default function OrdersTable() {
     return pages;
   };
 
-  const getDiscountAmount = (discountApplications) => {
+  /*   const getDiscountAmount = (discountApplications) => {
     if (!discountApplications || discountApplications.length === 0) return 0;
     const discount = discountApplications[0]?.node?.value?.amount;
     return typeof discount === "number" ? discount : parseFloat(discount || 0);
-  };
+  }; */
 
   return (
     <Layout>
@@ -466,8 +469,6 @@ export default function OrdersTable() {
             </ul>
           </nav>
         )}
-
-        {/* Modal removed - functionality moved to Shopify redirect */}
       </div>
 
       <style>{`

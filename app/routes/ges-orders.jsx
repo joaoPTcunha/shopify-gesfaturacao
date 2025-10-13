@@ -325,14 +325,21 @@ export async function action({ request }) {
   let clientResult = null;
   let productResults = [];
   let actionType = null;
+  let orderId = null; // Initialize orderId
+  let orderNumber = null; // Initialize orderNumber
 
   try {
     const formData = await request.formData();
     actionType = formData.get("actionType")?.toString() || "generateInvoice";
-    const orderId = formData.get("orderId")?.toString();
-    const orderNumber = formData.get("orderNumber")?.toString();
+    orderId = formData.get("orderId")?.toString(); // Always attempt to get orderId
+    orderNumber = formData.get("orderNumber")?.toString();
     const customerEmail = formData.get("customerEmail")?.toString();
     const invoiceNumber = formData.get("invoiceNumber")?.toString();
+
+    // Validate orderId for all actions
+    if (!orderId) {
+      throw new Error("orderId is missing in formData");
+    }
 
     if (actionType === "generateInvoice") {
       const orderData = formData.get("order");
@@ -344,6 +351,11 @@ export async function action({ request }) {
         order = JSON.parse(orderData);
       } catch (parseError) {
         throw new Error(`Failed to parse order data: ${parseError.message}`);
+      }
+
+      // Validate that order.id matches orderId
+      if (order.id !== orderId) {
+        throw new Error("Mismatch between orderId in formData and order data");
       }
 
       clientResult = await fetchClientDataFromOrder(order);
@@ -382,14 +394,16 @@ export async function action({ request }) {
       }
 
       const invoiceResult = await generateInvoice(order);
-      return json(invoiceResult);
+      return json({ ...invoiceResult, orderId, orderNumber, actionType });
     } else if (actionType === "downloadInvoice") {
       const existingInvoice = await prisma.gESinvoices.findFirst({
         where: { order_id: orderId },
       });
 
       if (!existingInvoice || existingInvoice.invoice_status !== 1) {
-        throw new Error(`No finalized invoice found for order ${orderNumber}`);
+        throw new Error(
+          `No finalized invoice found for order ${orderNumber || orderId}`,
+        );
       }
 
       const login = await prisma.gESlogin.findFirst({
@@ -411,15 +425,16 @@ export async function action({ request }) {
       if (!apiUrl.endsWith("/")) apiUrl += "/";
 
       const invoiceFile = await downloadInvoicePDF(
+        existingInvoice.invoice_id,
+        "FR",
         apiUrl,
         login.token,
-        existingInvoice.invoice_id,
       );
 
       return json({
         success: true,
         orderId,
-        orderNumber,
+        orderNumber: orderNumber || existingInvoice.order_id,
         actionType,
         invoiceFile,
         invoiceNumber: existingInvoice.invoice_number,
@@ -490,9 +505,9 @@ export async function action({ request }) {
     const status = error.message.includes("creation failed") ? 400 : 500;
     return json(
       {
-        error: `Token Expirado ou erro na criação da fatura - Mensagem de erro: ${error.message}`,
-        orderId: order?.id || orderId || "unknown",
-        orderNumber: order?.orderNumber || orderNumber || "unknown",
+        error: `Error processing action: ${error.message}`,
+        orderId: orderId || order?.id || "unknown",
+        orderNumber: orderNumber || order?.orderNumber || "unknown",
         actionType: actionType || "unknown",
         clientId: clientResult?.clientId || null,
         clientFound: clientResult?.found || false,

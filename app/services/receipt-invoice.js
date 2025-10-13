@@ -33,7 +33,7 @@ export async function generateInvoice(order) {
 
   const expireDate = login.date_expire ? new Date(login.date_expire) : null;
   if (!expireDate || expireDate < new Date()) {
-    await prisma.gESinvoices.delete({ where: { id: login.id } });
+    await prisma.gESlogin.delete({ where: { id: login.id } }); // Fixed: Correct table name
     throw new Error("GES session expired");
   }
 
@@ -452,46 +452,52 @@ export async function generateInvoice(order) {
   }
 
   let invoiceFile = null;
-  try {
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    const downloadEndpoint = `${apiUrl}sales/documents/${invoiceId}/type/FR`;
-    const downloadResponse = await fetch(downloadEndpoint, {
-      method: "GET",
-      headers: {
-        Authorization: login.token,
-        Accept: "application/json",
-        "Content-Type": "application/json",
-      },
-    });
+  if (isFinalized || !isFinalized) {
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      const downloadEndpoint = `${apiUrl}sales/documents/${invoiceId}/type/FR`;
+      const downloadResponse = await fetch(downloadEndpoint, {
+        method: "GET",
+        headers: {
+          Authorization: login.token,
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+      });
 
-    if (!downloadResponse.ok) {
-      throw new Error(`Failed to download PDF: ${downloadResponse.statusText}`);
+      if (!downloadResponse.ok) {
+        throw new Error(
+          `Failed to download PDF: ${downloadResponse.statusText}`,
+        );
+      }
+
+      const pdfData = await downloadResponse.json();
+      const pdfBase64 = pdfData.data?.document;
+      if (!pdfBase64) {
+        throw new Error("PDF document missing in GESfaturacao response");
+      }
+
+      const pdfContent = Buffer.from(pdfBase64, "base64");
+      const contentLength = pdfContent.length;
+
+      if (pdfContent.toString("ascii", 0, 4) !== "%PDF") {
+        throw new Error("Invalid PDF content: missing %PDF header");
+      }
+
+      invoiceFile = {
+        contentType: "application/pdf",
+        data: pdfBase64,
+        filename: isFinalized
+          ? `fatura_${invoiceId}.pdf`
+          : `fatura_Rascunho_${invoiceId}.pdf`, // Adjust filename for draft invoices
+        size: contentLength,
+      };
+    } catch (err) {
+      console.warn(
+        `[generateInvoice] Error downloading PDF for invoice ${savedInvoiceNumber}: ${err.message}`,
+      );
+      invoiceFile = null;
     }
-
-    const pdfData = await downloadResponse.json();
-    const pdfBase64 = pdfData.data?.document;
-    if (!pdfBase64) {
-      throw new Error("PDF document missing in GESfaturacao response");
-    }
-
-    const pdfContent = Buffer.from(pdfBase64, "base64");
-    const contentLength = pdfContent.length;
-
-    if (pdfContent.toString("ascii", 0, 4) !== "%PDF") {
-      throw new Error("Invalid PDF content: missing %PDF header");
-    }
-
-    invoiceFile = {
-      contentType: "application/pdf",
-      data: pdfBase64,
-      filename: `fatura_${invoiceId}.pdf`,
-      size: contentLength,
-    };
-  } catch (err) {
-    console.warn(
-      `[generateInvoice] Error downloading PDF for invoice ${savedInvoiceNumber}: ${err.message}`,
-    );
-    invoiceFile = null;
   }
 
   if (isFinalized && login.email_auto && order.customerEmail !== "N/A") {
