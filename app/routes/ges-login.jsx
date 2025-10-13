@@ -87,7 +87,6 @@ export async function action({ request }) {
       },
     });
 
-    // Redireciona após login para /ges-config
     return redirect("/ges-config");
   } catch (error) {
     console.error("Erro ao ligar à API:", error.message);

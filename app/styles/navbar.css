@@ -1,0 +1,78 @@
+@import url("https://fonts.googleapis.com/css?family=Work+Sans:400,600");
+
+.custom-navbar {
+  background-color: rgba(0, 0, 0, 1);
+  font-weight: 600;
+  transition: background-color 0.3s ease;
+}
+
+/* LOGO AJUSTADO */
+.navbar-logo {
+  height: 30px;
+  width: auto;
+  object-fit: contain;
+  display: block;
+}
+
+.custom-navbar .navbar-brand {
+  color: rgb(255, 255, 255);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  padding: 5px 0;
+}
+
+.custom-navbar .navbar-brand:hover {
+  color: rgb(255, 221, 182);
+  transition: color 0.3s ease;
+}
+
+/* LINKS */
+.custom-navbar .nav-link {
+  color: rgb(255, 255, 255);
+  text-transform: uppercase;
+  font-size: 0.9rem;
+  margin: 0 20px;
+  position: relative;
+  transition: color 0.25s ease-in-out;
+}
+
+.custom-navbar .nav-link:hover {
+  color: rgb(255, 221, 182);
+}
+
+.custom-navbar .nav-link::before {
+  content: "";
+  display: block;
+  height: 3px;
+  background-color: rgb(255, 221, 182);
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0%;
+  transition: width 250ms ease-in-out;
+}
+
+.custom-navbar .nav-link:hover::before {
+  width: 100%;
+}
+
+/* LINK ATIVO */
+.custom-navbar .nav-link.active {
+  color: rgb(
+    169,
+    169,
+    169
+  ) !important; /* Cinza leve para o texto do link ativo */
+}
+
+.custom-navbar .nav-link.active:hover {
+  color: rgb(169, 169, 169); /* Mantém cinza leve no hover do link ativo */
+}
+
+.navbar-toggler {
+  border-color: rgba(255, 255, 255, 0.877);
+}
+
+.navbar-nav {
+  align-items: center;
+}
