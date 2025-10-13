@@ -143,15 +143,12 @@ export default function GesConfigPage() {
   return (
     <Layout>
       <div className="container d-flex justify-content-center align-items-center min-vh-100">
-        <div className="col-md-6 col-lg-4">
+        <div className="col-md-2 col-lg-6">
           <div className="card border-0 shadow-sm">
             <div className="card-body text-center">
               <h1 className="display-6 fw-bold mb-3">
                 Configuração GESFaturação
               </h1>
-              <p className="text-muted mb-4">
-                Configure as opções de faturação
-              </p>
               <ConfigForm />
             </div>
           </div>

@@ -233,7 +233,7 @@ export default function ConfigForm() {
         </label>
       </div>
 
-      <div className="mb-3 form-check form-switch">
+      <div className="mb-4 form-check form-switch">
         <input
           type="checkbox"
           id="sendByEmail"
@@ -242,9 +242,16 @@ export default function ConfigForm() {
           defaultChecked={email_auto}
           role="switch"
         />
-        <label htmlFor="sendByEmail" className="form-check-label fw-medium">
-          Enviar por Email
-        </label>
+        <div className="d-flex flex-column">
+          <label htmlFor="sendByEmail" className="form-check-label fw-semibold">
+            Enviar automaticamente a fatura por email após criação
+          </label>
+
+          <small className="text-warning">
+            ⚠ Atenção: Não é possível enviar faturas em estado "Rascunho" por
+            email.
+          </small>
+        </div>
       </div>
 
       <button type="submit" className="btn btn-primary">

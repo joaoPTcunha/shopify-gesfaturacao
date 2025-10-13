@@ -1,8 +1,9 @@
-import { useLoaderData } from "@remix-run/react";
+import { useLoaderData, useRevalidator } from "@remix-run/react";
 import { redirect, json } from "@remix-run/node";
 import prisma from "../../prisma/client";
 import Layout from "../components/Layout";
 import LoginForm from "../components/LoginForm";
+import { useEffect } from "react";
 
 export async function loader({ request }) {
   try {
@@ -13,7 +14,20 @@ export async function loader({ request }) {
       return json({ isAuthenticated: false });
     }
 
+    if (url.searchParams.get("check") === "true") {
+      const login = await prisma.GESlogin.findFirst({
+        where: { finalized: true },
+        orderBy: { date_login: "desc" },
+      });
+
+      const isAuthenticated =
+        login && login.date_expire && new Date(login.date_expire) > new Date();
+
+      return json({ loggedIn: isAuthenticated });
+    }
+
     const login = await prisma.GESlogin.findFirst({
+      where: { finalized: true },
       orderBy: { date_login: "desc" },
     });
 
@@ -81,13 +95,17 @@ export async function action({ request }) {
         date_expire:
           data.expire_date ??
           new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-        finalized: false,
+        finalized: true,
         invoice_auto: false,
         email_auto: false,
       },
     });
 
-    return redirect("/ges-config");
+    return redirect("/ges-config", {
+      headers: {
+        "X-Remix-Revalidate": "1", // Trigger revalidation of loaders
+      },
+    });
   } catch (error) {
     console.error("Erro ao ligar à API:", error.message);
     return json(
@@ -99,6 +117,13 @@ export async function action({ request }) {
 
 export default function GesLoginPage() {
   const { isAuthenticated } = useLoaderData();
+  const revalidator = useRevalidator();
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      revalidator.revalidate(); // Revalidate to ensure root loader updates
+    }
+  }, [isAuthenticated, revalidator]);
 
   return (
     <Layout>
@@ -106,12 +131,7 @@ export default function GesLoginPage() {
         <div className="col-md-6 col-lg-4">
           <div className="card border-0 shadow-sm">
             <div className="card-body text-center">
-              <h1 className="display-6 fw-bold mb-3">
-                Iniciar Sessão GESFaturacao
-              </h1>
-              <p className="text-muted mb-4">
-                Aceda à sua conta para gerir as suas faturas
-              </p>
+              <h1 className="display-6 fw-bold mb-3">Login API GESFaturação</h1>
 
               {isAuthenticated ? (
                 <div>

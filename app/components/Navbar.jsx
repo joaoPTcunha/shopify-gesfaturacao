@@ -1,7 +1,26 @@
-import { Link } from "@remix-run/react";
-import "../styles/navbar.css"; // Importa o arquivo CSS
+import { Link, useLocation, useFetcher } from "@remix-run/react";
+import { useEffect, useState } from "react";
+import "../styles/navbar.css";
 
 export default function Navbar({ isAuthenticated }) {
+  const location = useLocation();
+  const fetcher = useFetcher();
+  const [authState, setAuthState] = useState(isAuthenticated);
+
+  useEffect(() => {
+    if (fetcher.state === "idle" && !fetcher.data) {
+      fetcher.load("/ges-login?check=true");
+    }
+  }, [fetcher, location.pathname]);
+
+  useEffect(() => {
+    if (fetcher.data?.loggedIn !== undefined) {
+      setAuthState(fetcher.data.loggedIn);
+    }
+  }, [fetcher.data]);
+
+  const isAuth = fetcher.data?.loggedIn ?? isAuthenticated;
+
   return (
     <nav
       className="navbar navbar-expand-lg custom-navbar fixed-top"
@@ -34,28 +53,37 @@ export default function Navbar({ isAuthenticated }) {
         >
           <ul className="navbar-nav text-center">
             <li className="nav-item">
-              <Link className="nav-link" to="/ges-orders">
+              <Link
+                className={`nav-link ${
+                  location.pathname === "/ges-orders" ? "active" : ""
+                }`}
+                to="/ges-orders"
+              >
                 Encomendas
               </Link>
             </li>
             <li className="nav-item">
-              <Link className="nav-link" to="/ges-config">
+              <Link
+                className={`nav-link ${
+                  location.pathname === "/ges-config" ? "active" : ""
+                }`}
+                to="/ges-config"
+              >
                 Configurações
               </Link>
             </li>
-            {!isAuthenticated ? (
-              <li className="nav-item">
-                <Link className="nav-link" to="/ges-login">
-                  Login
-                </Link>
-              </li>
-            ) : (
-              <li className="nav-item">
-                <Link className="nav-link" to="/ges-logout">
-                  Sair
-                </Link>
-              </li>
-            )}
+            <li className="nav-item">
+              <Link
+                className={`nav-link ${
+                  location.pathname === (isAuth ? "/ges-logout" : "/ges-login")
+                    ? "active"
+                    : ""
+                }`}
+                to={isAuth ? "/ges-logout" : "/ges-login"}
+              >
+                {isAuth ? "Sair" : "Login"}
+              </Link>
+            </li>
           </ul>
         </div>
       </div>

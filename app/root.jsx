@@ -12,12 +12,12 @@ import "bootstrap/dist/css/bootstrap.min.css";
 import { json } from "@remix-run/node";
 import { prisma } from "./prisma/client.js";
 import { useEffect } from "react";
-
 import { Toaster, toast } from "sonner";
 
 export async function loader() {
   try {
     const login = await prisma.GESlogin.findFirst({
+      where: { finalized: true },
       orderBy: { date_login: "desc" },
       select: { token: true, date_expire: true },
     });
@@ -26,9 +26,10 @@ export async function loader() {
       login.token &&
       login.date_expire &&
       new Date(login.date_expire) > new Date();
+    console.log("[Root Loader] isAuthenticated:", isAuthenticated); // Debug log
     return json({ isAuthenticated });
   } catch (error) {
-    console.error("[Root Loader] Errosr:", error.message);
+    console.error("[Root Loader] Error:", error.message);
     return json({ isAuthenticated: false });
   }
 }

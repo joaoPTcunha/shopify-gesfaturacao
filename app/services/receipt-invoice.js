@@ -5,8 +5,6 @@ import { fetchShippingProductData } from "./shipping";
 import { sendEmail } from "./sendEmail";
 import { Discounts } from "./discounts";
 import { getMonetaryValue } from "../utils/getMonetaryValue";
-import { clampDiscount } from "../utils/clampDiscount";
-import { downloadInvoicePDF } from "./download";
 
 export async function generateInvoice(order) {
   if (!order.id || !order.orderNumber) {
