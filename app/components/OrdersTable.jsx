@@ -58,6 +58,14 @@ export default function OrdersTable() {
         }
       }
 
+      if (error && actionType === "generateInvoice") {
+        if (isClient) {
+          toast.error(error, {
+            duration: 5000,
+          });
+        }
+      }
+
       if (success && actionType === "downloadInvoice") {
         setOrders((prevOrders) =>
           prevOrders.map((order) =>
@@ -139,6 +147,43 @@ export default function OrdersTable() {
               description: `Encomenda: ${orderNumber}`,
               duration: 3000,
             });
+          }
+        }
+        if (isClient && invoiceFile && !isFinalized) {
+          try {
+            const { contentType, data, filename } = invoiceFile;
+            if (!data || typeof data !== "string")
+              throw new Error("Invalid Base64 data");
+
+            toast.success("Download da fatura iniciado!", {
+              description: `Fatura: ${invoiceNumber}, Encomenda: ${orderNumber}`,
+              duration: 3000,
+            });
+
+            const byteCharacters = atob(data);
+            const byteNumbers = new Array(byteCharacters.length);
+            for (let i = 0; i < byteCharacters.length; i++) {
+              byteNumbers[i] = byteCharacters.charCodeAt(i);
+            }
+            const byteArray = new Uint8Array(byteNumbers);
+            const blob = new Blob([byteArray], { type: contentType });
+            const url = window.URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            window.URL.revokeObjectURL(url);
+          } catch (err) {
+            console.error("[OrdersTable] Download error:", err);
+            toast.error(
+              `Falha ao carregar o documento PDF para o pedido ${orderNumber}.`,
+              {
+                description: `Erro: ${err.message}`,
+                duration: 5000,
+              },
+            );
           }
         }
       }

@@ -10,6 +10,7 @@ sho-jc1037 -> 1 + 1 (desconto de 40% no produto) (TOTAL = 18.00 €)
 sho-jc1038 -> 3 + Portes (5 €) (TOTAL = 61,50 €)
 sho-jc1039 -> 2 + 1 (Desconto de compra 2 leva 1 em 50%) + Portes (5 €) (TOTAL = 46,13 €)
 sho-jc1040 -> 1 + Portes (25.82 €) ( desconto no produto 5%) (Teste front office) (TOTAL = 950,15 €)
+sho-jc4041 -> 1 + 1 (iva 0 com motivo de isenção) + Portes (1 €) (TOTAL = 50,83 €)
 
 
 

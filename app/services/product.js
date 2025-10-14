@@ -9,24 +9,17 @@ export async function fetchProductDataFromOrder(order, lineItem) {
     );
   }
 
-  console.log(
-    `[GESF] Iniciando sincronização de produto - Código: ${lineItem.sku || lineItem.variant?.sku || "N/A"}, Nome: ${lineItem.title}`,
-  );
-
-  // Verificar sessão GES
   const login = await prisma.gESlogin.findFirst({
     where: { dom_licenca: process.env.GES_LICENSE },
     orderBy: { date_login: "desc" },
   });
   if (!login || !login.token) {
-    console.error("[GESF] Erro: Nenhuma sessão GES ativa encontrada");
     throw new Error("Nenhuma sessão GES ativa encontrada");
   }
 
   const expireDate = login.date_expire ? new Date(login.date_expire) : null;
   if (!expireDate || expireDate < new Date()) {
     await prisma.gESlogin.delete({ where: { id: login.id } });
-    console.error("[GESF] Erro: Sessão GES expirada");
     throw new Error("Sessão GES expirada");
   }
 
@@ -57,11 +50,6 @@ export async function fetchProductDataFromOrder(order, lineItem) {
       : defaultTaxRate
     : 0;
 
-  console.log(
-    `[GESF] Tax rate for ${lineItem.title}: ${taxRatePercentage}% (from ${lineItem.taxLines?.length > 0 ? (lineItem.taxLines[0].ratePercentage ? "ratePercentage" : "rate") : "default"})`,
-  );
-
-  // Calculate price excluding VAT and PVP
   const unitPriceExcludingVat =
     isTaxable && lineItem.taxLines?.length > 0
       ? parseFloat(lineItem.unitPrice)
@@ -72,14 +60,9 @@ export async function fetchProductDataFromOrder(order, lineItem) {
     ? parseFloat(lineItem.originalUnitPriceSet.shopMoney.amount)
     : unitPriceExcludingVat * (1 + taxRatePercentage / 100);
 
-  console.log(
-    `[GESF] Prices for ${lineItem.title}: excl. VAT=€${unitPriceExcludingVat.toFixed(3)}, PVP=€${pvpPrice.toFixed(4)}`,
-  );
-
   // Função auxiliar para buscar isenção de IVA
   async function getExemptionId(reasonCode) {
     if (!reasonCode) {
-      console.warn(`[GESF] No exemption reason provided for ${lineItem.title}`);
       return null;
     }
     try {
@@ -102,19 +85,14 @@ export async function fetchProductDataFromOrder(order, lineItem) {
           ex.name?.toUpperCase().includes(reasonCode.toUpperCase()),
       );
       if (!exemption) {
-        console.warn(
-          `[GESF] Exemption reason ${reasonCode} not found for ${lineItem.title}`,
-        );
         return null;
       }
       return parseInt(exemption.id, 10);
     } catch (error) {
-      console.error(`[GESF] Erro ao buscar isenções: ${error.message}`);
       return null;
     }
   }
 
-  // Função auxiliar para buscar produto por código
   async function fetchProductByCode(productCode) {
     try {
       const response = await fetch(
@@ -152,55 +130,13 @@ export async function fetchProductDataFromOrder(order, lineItem) {
     }
   }
 
-  // Função auxiliar para buscar produto por ID
-  async function fetchProductById(productId) {
-    try {
-      const response = await fetch(
-        `${apiUrl}products/${encodeURIComponent(productId)}`,
-        {
-          method: "GET",
-          headers: {
-            Authorization: login.token,
-            Accept: "application/json",
-            "Content-Type": "application/json",
-          },
-          signal: AbortSignal.timeout(10000),
-        },
-      );
-      const responseText = await response.text();
-      let responseBody;
-      try {
-        responseBody = JSON.parse(responseText);
-      } catch {
-        return {
-          errors: [{ message: "Resposta JSON inválida" }],
-          status: response.status,
-        };
-      }
-      return {
-        data: responseBody.data,
-        errors: responseBody.errors,
-        status: response.status,
-      };
-    } catch (fetchError) {
-      return {
-        errors: [{ message: `Erro na busca por ID: ${fetchError.message}` }],
-        status: 0,
-      };
-    }
-  }
-
-  // Validar productCode
   if (!productCode || typeof productCode !== "string") {
     const errorMessage = `Código do produto inválido ou vazio ('${productCode}')`;
-    console.error(`[GESF] Erro: ${errorMessage}`);
     throw new Error(errorMessage);
   }
 
-  // Verificar se o produto existe
   const searchResult = await fetchProductByCode(productCode);
 
-  // Produto encontrado
   if (searchResult.status === 200 && searchResult.data?.id) {
     const gesProduct = searchResult.data;
     const productIdGes = gesProduct.id;
@@ -220,7 +156,6 @@ export async function fetchProductDataFromOrder(order, lineItem) {
       exemptionId = await getExemptionId(gesProduct.exemption_reason || "M20");
       if (!exemptionId) {
         const errorMessage = `Não é possível gerar fatura: O produto ${lineItem.title} deve ter um motivo de isenção de IVA válido no GESfaturacao.`;
-        console.error(`[GESF] Erro: ${errorMessage}`);
         throw new Error(errorMessage);
       }
     }
@@ -258,7 +193,6 @@ export async function fetchProductDataFromOrder(order, lineItem) {
     // Validar IVA 0% antes de criar
     if (!isTaxable) {
       const errorMessage = `Não é possível gerar fatura: O produto ${lineItem.title} deve ser criado no GESfaturacao com um motivo de isenção de IVA válido.`;
-      console.error(`[GESF] Erro: ${errorMessage}`);
       throw new Error(errorMessage);
     }
 
@@ -315,7 +249,6 @@ export async function fetchProductDataFromOrder(order, lineItem) {
     let createResponseText = await createResponse.text();
 
     if (!createResponse.ok) {
-      console.log("[GESF] JSON falhou, tentando form-urlencoded");
       createResponse = await fetch(`${apiUrl}products`, {
         method: "POST",
         headers: {
@@ -337,10 +270,6 @@ export async function fetchProductDataFromOrder(order, lineItem) {
       }
 
       if (createResponseBody.errors?.some((err) => err.code === "PV_CODE_10")) {
-        console.log(
-          `[GESF] Produto ${productCode} já existe, tentando buscar novamente`,
-        );
-        await delay(200);
         const retrySearchResult = await fetchProductByCode(productCode);
         if (retrySearchResult.status === 200 && retrySearchResult.data?.id) {
           const gesProduct = retrySearchResult.data;
@@ -363,7 +292,6 @@ export async function fetchProductDataFromOrder(order, lineItem) {
             );
             if (!exemptionId) {
               const errorMessage = `Não é possível gerar fatura: O produto ${lineItem.title} deve ter um motivo de isenção de IVA válido no GESfaturacao.`;
-              console.error(`[GESF] Erro: ${errorMessage}`);
               throw new Error(errorMessage);
             }
           }
@@ -386,7 +314,6 @@ export async function fetchProductDataFromOrder(order, lineItem) {
         createResponseBody.errors
           ?.map((err) => `${err.code}: ${err.message}`)
           .join("; ") || `Falha na criação do produto: ${createResponseText}`;
-      console.error(`[GESF] Erro: ${errorMessage}`);
       throw new Error(errorMessage);
     }
 
@@ -418,15 +345,8 @@ export async function fetchProductDataFromOrder(order, lineItem) {
       );
       if (!exemptionId) {
         const errorMessage = `Não é possível gerar fatura: O produto ${lineItem.title} deve ter um motivo de isenção de IVA válido no GESfaturacao.`;
-        console.error(`[GESF] Erro: ${errorMessage}`);
         throw new Error(errorMessage);
       }
-    }
-
-    if (!productIdGes) {
-      const errorMessage = `Criação do produto bem-sucedida, mas nenhum ID retornado: ${createResponseText}`;
-      console.error(`[GESF] Erro: ${errorMessage}`);
-      throw new Error(errorMessage);
     }
 
     return {
@@ -450,6 +370,5 @@ export async function fetchProductDataFromOrder(order, lineItem) {
           `${err.code || "Erro desconhecido"}: ${err.message || "Sem mensagem"}`,
       )
       .join("; ") || `Status de resposta inesperado: ${searchResult.status}`;
-  console.error(`[GESF] Erro: ${errorMessage}`);
   throw new Error(`Falha na busca do produto: ${errorMessage}`);
 }
