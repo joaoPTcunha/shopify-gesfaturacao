@@ -59,10 +59,7 @@ export default function OrdersTable() {
         }
       }
 
-      if (
-        success &&
-        (actionType === "generateInvoice" || actionType === "downloadInvoice")
-      ) {
+      if (success && actionType === "generateInvoice") {
         setOrders((prevOrders) =>
           prevOrders.map((order) =>
             order.id === orderId ? { ...order, invoiceNumber } : order,
@@ -70,8 +67,8 @@ export default function OrdersTable() {
         );
 
         if (isClient) {
-          console.log({ invoiceNumber, isFinalized, emailSent });
-          if (emailSent) {
+          /*           console.log({ invoiceNumber, isFinalized, emailSent });
+           */ if (emailSent) {
             toast.success("Fatura enviada por email com sucesso!", {
               description: `Fatura: ${invoiceNumber}, Encomenda: ${orderNumber}`,
               duration: 3000,
@@ -92,7 +89,6 @@ export default function OrdersTable() {
             });
           }
 
-          // Download do PDF (se existir)
           if (invoiceFile) {
             try {
               const { contentType, data, filename } = invoiceFile;

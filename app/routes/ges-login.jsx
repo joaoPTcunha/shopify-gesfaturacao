@@ -1,9 +1,14 @@
-import { useLoaderData, useRevalidator } from "@remix-run/react";
+import {
+  useLoaderData,
+  useRevalidator,
+  useSearchParams,
+} from "@remix-run/react";
 import { redirect, json } from "@remix-run/node";
 import prisma from "../../prisma/client";
 import Layout from "../components/Layout";
 import LoginForm from "../components/LoginForm";
-import { useEffect } from "react";
+import { useEffect, useState, useRef } from "react";
+import { toast } from "sonner";
 
 export async function loader({ request }) {
   try {
@@ -11,7 +16,7 @@ export async function loader({ request }) {
 
     if (url.searchParams.get("logout") === "true") {
       await prisma.GESlogin.deleteMany({});
-      return json({ isAuthenticated: false });
+      return json({ isAuthenticated: false, logout: true });
     }
 
     if (url.searchParams.get("check") === "true") {
@@ -109,14 +114,44 @@ export async function action({ request }) {
 }
 
 export default function GesLoginPage() {
-  const { isAuthenticated } = useLoaderData();
+  const { isAuthenticated, error, logout } = useLoaderData();
   const revalidator = useRevalidator();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [hasShownLogoutToast, setHasShownLogoutToast] = useState(false);
+  const hasMounted = useRef(false);
 
   useEffect(() => {
-    if (isAuthenticated) {
+    if (!hasMounted.current) {
+      hasMounted.current = true;
+      return;
+    }
+
+    if (logout && !hasShownLogoutToast) {
+      toast.success("Sessão terminada com sucesso!", {
+        duration: 3000,
+      });
+      setHasShownLogoutToast(true);
+      setSearchParams({}, { replace: true });
+    }
+    if (error) {
+      toast.error("Erro ao carregar a página de login", {
+        description: error,
+        duration: 5000,
+      });
+    }
+  }, [logout, error, searchParams, hasShownLogoutToast, setSearchParams]);
+
+  useEffect(() => {
+    if (!logout && searchParams.get("logout") !== "true") {
+      setHasShownLogoutToast(false);
+    }
+  }, [logout, searchParams]);
+
+  useEffect(() => {
+    if (isAuthenticated && !logout) {
       revalidator.revalidate();
     }
-  }, [isAuthenticated, revalidator]);
+  }, [isAuthenticated, logout, revalidator]);
 
   return (
     <Layout>

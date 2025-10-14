@@ -22,4 +22,8 @@ sho-jc1040 -> 1 + Portes (25.82 €) ( desconto no produto 5%) (Teste front offi
 
 4- Após clicar no botão Gerar Fatura deves coloca-lo em disabled enquanto o pedido esta a ser feito, caso contrario o utilizador pode clicar varias vezes nele
 
+5- Resposividade
 
+
+!!! Resolvido
+notificação logout, Notificacoes ao gerar faturas

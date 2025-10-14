@@ -485,7 +485,7 @@ export async function generateInvoice(order) {
       data: pdfBase64,
       filename: isFinalized
         ? `fatura_${invoiceId}.pdf`
-        : `fatura_Rascunho_${invoiceId}.pdf`, // Adjust filename for draft invoices
+        : `fatura_Rascunho_${invoiceId}.pdf`,
       size: contentLength,
     };
   } catch (err) {
@@ -495,6 +495,7 @@ export async function generateInvoice(order) {
     invoiceFile = null;
   }
 
+  let emailActuallySent = false;
   if (isFinalized && login.email_auto && order.customerEmail !== "N/A") {
     try {
       await sendEmail({
@@ -505,6 +506,7 @@ export async function generateInvoice(order) {
         apiUrl,
         token: login.token,
       });
+      emailActuallySent = true;
     } catch (err) {
       console.error(
         `[generateInvoice] Failed to send email for invoice ${savedInvoiceNumber}: ${err.message}`,
@@ -523,6 +525,8 @@ export async function generateInvoice(order) {
     invoice: result,
     invoiceFile,
     invoiceNumber: savedInvoiceNumber,
+    isFinalized,
+    emailSent: emailActuallySent,
     success: true,
     actionType: "generateInvoice",
   };

@@ -254,7 +254,7 @@ export default function ConfigForm() {
           <label htmlFor="sendByEmail" className="form-check-label fw-semibold">
             Enviar automaticamente a fatura por email após criação
           </label>
-          <small className="text-warning">
+          <small className="text-secondary">
             ⚠ Atenção: Não é possível enviar faturas em estado "Rascunho" por
             email.
           </small>
