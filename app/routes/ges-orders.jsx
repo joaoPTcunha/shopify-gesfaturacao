@@ -325,18 +325,17 @@ export async function action({ request }) {
   let clientResult = null;
   let productResults = [];
   let actionType = null;
-  let orderId = null; // Initialize orderId
-  let orderNumber = null; // Initialize orderNumber
+  let orderId = null;
+  let orderNumber = null;
 
   try {
     const formData = await request.formData();
     actionType = formData.get("actionType")?.toString() || "generateInvoice";
-    orderId = formData.get("orderId")?.toString(); // Always attempt to get orderId
+    orderId = formData.get("orderId")?.toString();
     orderNumber = formData.get("orderNumber")?.toString();
     const customerEmail = formData.get("customerEmail")?.toString();
     const invoiceNumber = formData.get("invoiceNumber")?.toString();
 
-    // Validate orderId for all actions
     if (!orderId) {
       throw new Error("orderId is missing in formData");
     }
@@ -353,7 +352,6 @@ export async function action({ request }) {
         throw new Error(`Failed to parse order data: ${parseError.message}`);
       }
 
-      // Validate that order.id matches orderId
       if (order.id !== orderId) {
         throw new Error("Mismatch between orderId in formData and order data");
       }

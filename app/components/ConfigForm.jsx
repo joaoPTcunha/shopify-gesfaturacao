@@ -1,5 +1,7 @@
+// components/ConfigForm.jsx
 import { Form, useActionData, useLoaderData } from "@remix-run/react";
 import { useState, useRef, useEffect } from "react";
+import { toast } from "sonner";
 
 export default function ConfigForm() {
   const {
@@ -7,13 +9,12 @@ export default function ConfigForm() {
     services,
     currentSerieId,
     currentServiceId,
-    finalized,
-    email_auto,
-    error,
+    finalized = true, // Fallback to true
+    email_auto = true, // Fallback to true
+    error: loaderError,
   } = useLoaderData();
   const actionData = useActionData();
 
-  // State for services search and selected value
   const [servicesSearch, setServicesSearch] = useState(
     services?.find((service) => service.id === currentServiceId)?.description ||
       "",
@@ -23,18 +24,18 @@ export default function ConfigForm() {
   );
   const [showServicesDropdown, setShowServicesDropdown] = useState(false);
 
-  // State for series search and selected value
   const [seriesSearch, setSeriesSearch] = useState(
     series?.find((serie) => serie.id === currentSerieId)?.name || "",
   );
   const [selectedSerieId, setSelectedSerieId] = useState(currentSerieId || "");
+
+  const [finalizeChecked, setFinalizeChecked] = useState(finalized);
+  const [emailAutoChecked, setEmailAutoChecked] = useState(email_auto);
   const [showSeriesDropdown, setShowSeriesDropdown] = useState(false);
 
-  // Refs for dropdown containers
   const servicesRef = useRef(null);
   const seriesRef = useRef(null);
 
-  // Filter services by description
   const filteredServices =
     services?.filter((service) =>
       servicesSearch
@@ -44,7 +45,6 @@ export default function ConfigForm() {
         : true,
     ) || [];
 
-  // Filter series by name
   const filteredSeries =
     series?.filter((serie) =>
       seriesSearch
@@ -52,7 +52,6 @@ export default function ConfigForm() {
         : true,
     ) || [];
 
-  // Handle clicks outside to close dropdowns
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (servicesRef.current && !servicesRef.current.contains(event.target)) {
@@ -66,28 +65,30 @@ export default function ConfigForm() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Handle services selection
+  useEffect(() => {
+    if (loaderError || actionData?.error) {
+      toast.error(loaderError || actionData?.error, { duration: 5000 });
+    }
+  }, [loaderError, actionData]);
+
   const handleServicesSelect = (service) => {
     setSelectedServiceId(service.id);
     setServicesSearch(service.description);
     setShowServicesDropdown(false);
   };
 
-  // Handle series selection
   const handleSeriesSelect = (serie) => {
     setSelectedSerieId(serie.id);
     setSeriesSearch(serie.name);
     setShowSeriesDropdown(false);
   };
 
-  // Clear services selection
   const clearServices = () => {
     setSelectedServiceId("");
     setServicesSearch("");
     setShowServicesDropdown(true);
   };
 
-  // Clear series selection
   const clearSeries = () => {
     setSelectedSerieId("");
     setSeriesSearch("");
@@ -96,7 +97,7 @@ export default function ConfigForm() {
 
   return (
     <Form method="post" className="p-4" lang="pt-PT">
-      {(actionData?.error || error) && (
+      {(actionData?.error || loaderError) && (
         <div className="alert alert-danger">
           Ocorreu um erro. Por favor, verifique os dados e tente iniciar sessão
           novamente.
@@ -115,7 +116,7 @@ export default function ConfigForm() {
             value={seriesSearch}
             onChange={(e) => {
               setSeriesSearch(e.target.value);
-              setSelectedSerieId(""); // Clear selection when typing
+              setSelectedSerieId("");
               setShowSeriesDropdown(true);
             }}
             onFocus={() => setShowSeriesDropdown(true)}
@@ -171,7 +172,7 @@ export default function ConfigForm() {
             value={servicesSearch}
             onChange={(e) => {
               setServicesSearch(e.target.value);
-              setSelectedServiceId(""); // Clear selection when typing
+              setSelectedServiceId("");
               setShowServicesDropdown(true);
             }}
             onFocus={() => setShowServicesDropdown(true)}
@@ -223,30 +224,36 @@ export default function ConfigForm() {
         <input
           type="checkbox"
           id="finalizeInvoice"
-          name="finalizeInvoice"
+          name="finalized"
           className="form-check-input"
-          defaultChecked={finalized}
+          checked={finalizeChecked}
+          onChange={(e) => setFinalizeChecked(e.target.checked)}
           role="switch"
         />
-        <label htmlFor="finalizeInvoice" className="form-check-label fw-medium">
-          Finalizar Fatura
-        </label>
+        <div className="d-flex flex-column">
+          <label
+            htmlFor="finalizeInvoice"
+            className="form-check-label fw-medium"
+          >
+            Finalizar Fatura
+          </label>
+        </div>
       </div>
 
       <div className="mb-4 form-check form-switch">
         <input
           type="checkbox"
           id="sendByEmail"
-          name="sendByEmail"
+          name="email_auto"
           className="form-check-input"
-          defaultChecked={email_auto}
+          checked={emailAutoChecked}
+          onChange={(e) => setEmailAutoChecked(e.target.checked)}
           role="switch"
         />
         <div className="d-flex flex-column">
           <label htmlFor="sendByEmail" className="form-check-label fw-semibold">
             Enviar automaticamente a fatura por email após criação
           </label>
-
           <small className="text-warning">
             ⚠ Atenção: Não é possível enviar faturas em estado "Rascunho" por
             email.
@@ -254,7 +261,7 @@ export default function ConfigForm() {
         </div>
       </div>
 
-      <button type="submit" className="btn btn-primary">
+      <button type="submit" className="btn btn-primary w-100">
         Guardar Configuração
       </button>
     </Form>

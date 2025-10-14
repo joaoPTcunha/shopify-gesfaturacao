@@ -16,7 +16,6 @@ export async function loader({ request }) {
 
     if (url.searchParams.get("check") === "true") {
       const login = await prisma.GESlogin.findFirst({
-        where: { finalized: true },
         orderBy: { date_login: "desc" },
       });
 
@@ -27,7 +26,6 @@ export async function loader({ request }) {
     }
 
     const login = await prisma.GESlogin.findFirst({
-      where: { finalized: true },
       orderBy: { date_login: "desc" },
     });
 
@@ -96,16 +94,11 @@ export async function action({ request }) {
           data.expire_date ??
           new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
         finalized: true,
-        invoice_auto: false,
-        email_auto: false,
+        email_auto: true,
       },
     });
 
-    return redirect("/ges-config", {
-      headers: {
-        "X-Remix-Revalidate": "1", // Trigger revalidation of loaders
-      },
-    });
+    return redirect("/ges-config", {});
   } catch (error) {
     console.error("Erro ao ligar à API:", error.message);
     return json(
@@ -121,7 +114,7 @@ export default function GesLoginPage() {
 
   useEffect(() => {
     if (isAuthenticated) {
-      revalidator.revalidate(); // Revalidate to ensure root loader updates
+      revalidator.revalidate();
     }
   }, [isAuthenticated, revalidator]);
 
@@ -132,22 +125,7 @@ export default function GesLoginPage() {
           <div className="card border-0 shadow-sm">
             <div className="card-body text-center">
               <h1 className="display-6 fw-bold mb-3">Login API GESFaturação</h1>
-
-              {isAuthenticated ? (
-                <div>
-                  <div className="alert alert-info mb-3">
-                    Já está autenticado.
-                  </div>
-                  <a
-                    href="/ges-login?logout=true"
-                    className="btn btn-outline-secondary w-100"
-                  >
-                    Terminar sessão
-                  </a>
-                </div>
-              ) : (
-                <LoginForm />
-              )}
+              <LoginForm />
             </div>
           </div>
         </div>

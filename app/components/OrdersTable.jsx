@@ -14,6 +14,11 @@ export default function OrdersTable() {
   const [isProcessing, setIsProcessing] = useState(false);
   const fetcher = useFetcher();
 
+  // Initialize pageSize from searchParams or default to 20
+  const [pageSize, setPageSize] = useState(
+    parseInt(searchParams.get("pageSize")) || 20,
+  );
+
   useEffect(() => {
     setIsClient(true);
   }, []);
@@ -65,14 +70,34 @@ export default function OrdersTable() {
         );
 
         if (isClient) {
+          console.log({ invoiceNumber, isFinalized, emailSent });
+          if (emailSent) {
+            toast.success("Fatura enviada por email com sucesso!", {
+              description: `Fatura: ${invoiceNumber}, Encomenda: ${orderNumber}`,
+              duration: 3000,
+            });
+          } else if (isFinalized) {
+            toast.success(
+              `Fatura gerada com sucesso!`,
+
+              {
+                description: `Fatura: ${invoiceNumber}, Encomenda: ${orderNumber}`,
+                duration: 3000,
+              },
+            );
+          } else {
+            toast.success(`Fatura rascunho gerada com sucesso!`, {
+              description: `Encomenda: ${orderNumber}`,
+              duration: 3000,
+            });
+          }
+
+          // Download do PDF (se existir)
           if (invoiceFile) {
             try {
               const { contentType, data, filename } = invoiceFile;
-              if (!data || typeof data !== "string") {
-                throw new Error(
-                  "Invalid or missing Base64 data in invoiceFile",
-                );
-              }
+              if (!data || typeof data !== "string")
+                throw new Error("Invalid Base64 data");
 
               const byteCharacters = atob(data);
               const byteNumbers = new Array(byteCharacters.length);
@@ -89,15 +114,6 @@ export default function OrdersTable() {
               link.click();
               document.body.removeChild(link);
               window.URL.revokeObjectURL(url);
-              toast.success(
-                invoiceNumber === "N/A"
-                  ? `Download da fatura rascunho iniciado!`
-                  : `Download da fatura ${invoiceNumber} iniciado!`,
-                {
-                  description: `Encomenda: ${orderNumber}`,
-                  duration: 3000,
-                },
-              );
             } catch (err) {
               toast.error(
                 `Falha ao carregar o documento PDF para o pedido ${orderNumber}.`,
@@ -107,15 +123,6 @@ export default function OrdersTable() {
                 },
               );
             }
-          } else if (actionType === "generateInvoice") {
-            toast.success(
-              isFinalized === true
-                ? `Fatura ${invoiceNumber} gerada com sucesso para o pedido ${orderNumber}!`
-                : `Fatura rascunho ${invoiceNumber} gerada com sucesso para o pedido ${orderNumber}!`,
-              {
-                duration: 3000,
-              },
-            );
           }
         }
       }
@@ -185,7 +192,8 @@ export default function OrdersTable() {
     fetcher.submit(formData, { method: "post", action: "/ges-orders" });
   };
 
-  const translateStatus = (status) => (status === "PAID" ? "Pago" : status);
+  const translateStatus = (status) =>
+    status === "PAID" ? "Pagamento aceite" : status;
 
   const calculateOrderSummary = (lineItems) => {
     const totalItems = lineItems.reduce(
@@ -199,28 +207,29 @@ export default function OrdersTable() {
     return { totalItems, subtotal };
   };
 
-  /*   const formatAddress = (address) => {
-    if (!address) return "N/A";
-    const parts = [
-      address.address1,
-      address.address2,
-      address.city,
-      address.province,
-      address.zip,
-      address.country,
-      address.phone ? `Tel: ${address.phone}` : "",
-    ].filter(Boolean);
-    return parts.join(", ") || "N/A";
-  }; */
+  const formatDate = (dateString) => {
+    const date = new Date(dateString);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    const hours = String(date.getHours()).padStart(2, "0");
+    const minutes = String(date.getMinutes()).padStart(2, "0");
+    return `${year}-${month}-${day} ${hours}:${minutes}`;
+  };
 
   const goToPage = (page) => {
     if (page >= 1 && page <= totalPages) {
-      setSearchParams({ page: page.toString() });
+      setSearchParams({ page: page.toString(), pageSize: pageSize.toString() });
     }
   };
 
+  const handlePageSizeChange = (event) => {
+    const newPageSize = parseInt(event.target.value, 10);
+    setPageSize(newPageSize);
+    setSearchParams({ page: "1", pageSize: newPageSize.toString() });
+  };
+
   const currentPage = parseInt(searchParams.get("page") || "1", 10);
-  const pageSize = 20;
 
   const filteredOrders = useMemo(() => {
     if (!searchTerm) return orders;
@@ -229,10 +238,7 @@ export default function OrdersTable() {
       return (
         order.orderNumber.toLowerCase().includes(lowerTerm) ||
         order.customerName.toLowerCase().includes(lowerTerm) ||
-        new Date(order.orderDate)
-          .toLocaleString("pt-PT")
-          .toLowerCase()
-          .includes(lowerTerm) ||
+        formatDate(order.orderDate).toLowerCase().includes(lowerTerm) || // Use formatDate for search
         order.totalValue.toFixed(2).includes(lowerTerm) ||
         (order.invoiceNumber || "").toLowerCase().includes(lowerTerm) ||
         order.shippingAddress?.city?.toLowerCase().includes(lowerTerm) ||
@@ -303,30 +309,40 @@ export default function OrdersTable() {
     return pages;
   };
 
-  /*   const getDiscountAmount = (discountApplications) => {
-    if (!discountApplications || discountApplications.length === 0) return 0;
-    const discount = discountApplications[0]?.node?.value?.amount;
-    return typeof discount === "number" ? discount : parseFloat(discount || 0);
-  }; */
-
   return (
     <Layout>
       <div className="container py-5">
-        <h1 className="display-6 fw-bold mb-4">Painel de Ordens Pagas</h1>
-        <p className="text-muted mb-4">
-          Lista de ordens pagas diretamente do Shopify
-        </p>
+        <h1 className="display-6 fw-bold mb-4">Encomendas Pagas</h1>
 
         {error && <div className="alert alert-danger">{error}</div>}
 
-        <div className="mb-4">
-          <input
-            type="text"
-            className="form-control"
-            placeholder="Pesquisar por N.º Encomenda, Cliente, Data, Valor com IVA, N.º Fatura ou Cidade..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
+        <div className="mb-4 d-flex align-items-center">
+          <div className="me-3 flex-grow-1">
+            <input
+              type="text"
+              className="form-control"
+              placeholder="Pesquisar por N.º Encomenda, Cliente, Data, Valor com IVA, N.º Fatura ou Cidade..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </div>
+          <div className="d-flex align-items-center">
+            <label htmlFor="pageSize" className="me-2">
+              Encomendas por página:
+            </label>
+            <select
+              id="pageSize"
+              className="form-select"
+              style={{ width: "100px" }}
+              value={pageSize}
+              onChange={handlePageSizeChange}
+            >
+              <option value="10">10</option>
+              <option value="20">20</option>
+              <option value="50">50</option>
+              <option value="100">100</option>
+            </select>
+          </div>
         </div>
 
         <div className="card border-0 shadow-sm">
@@ -356,10 +372,8 @@ export default function OrdersTable() {
                           </span>
                         )}
                       </td>
-                      <td>
-                        {new Date(order.orderDate).toLocaleString("pt-PT")}
-                      </td>
-                      <td>{order.totalValue.toFixed(2)}</td>
+                      <td>{formatDate(order.orderDate)}</td>
+                      <td>{order.totalValue.toFixed(2)} €</td>
                       <td>{translateStatus(order.status)}</td>
                       <td>
                         {order.invoiceNumber &&

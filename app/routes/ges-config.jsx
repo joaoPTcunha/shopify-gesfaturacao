@@ -1,3 +1,4 @@
+// routes/ges-config.jsx
 import { json, redirect } from "@remix-run/node";
 import prisma from "../../prisma/client";
 import Layout from "../components/Layout";
@@ -9,9 +10,25 @@ export async function loader({ request }) {
       throw new Error("Prisma GESlogin model is not available.");
     }
 
-    const login = await prisma.GESlogin.findFirst({
+    let login = await prisma.GESlogin.findFirst({
       orderBy: { date_login: "desc" },
     });
+
+    if (!login) {
+      // Create a default login record if none exists
+      login = await prisma.GESlogin.create({
+        data: {
+          dom_licenca: process.env.GES_LICENSE,
+          token: "", // Placeholder; actual token would come from login flow
+          date_login: new Date(),
+          date_expire: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours from now
+          id_serie: "",
+          id_product_shipping: "",
+          finalized: true, // Default to true
+          email_auto: true, // Default to true
+        },
+      });
+    }
 
     const expireDate = login.date_expire ? new Date(login.date_expire) : null;
     if (!expireDate || expireDate < new Date()) {
@@ -74,9 +91,9 @@ export async function loader({ request }) {
       series: seriesData,
       services: servicesData,
       currentSerieId: login.id_serie || "",
-      currentServiceId: login.id_product_shipping || "", // Use id_product_shipping
-      finalized: login.finalized || false,
-      email_auto: login.email_auto || false,
+      currentServiceId: login.id_product_shipping || "",
+      finalized: login.finalized ?? true, // Default to true if null
+      email_auto: login.email_auto ?? true, // Default to true if null
       error: null,
     });
   } catch (error) {
@@ -87,8 +104,8 @@ export async function loader({ request }) {
         services: [],
         currentSerieId: "",
         currentServiceId: "",
-        finalized: false,
-        email_auto: false,
+        finalized: true,
+        email_auto: true,
         error: error.message,
       },
       { status: 500 },
@@ -105,8 +122,8 @@ export async function action({ request }) {
     const formData = await request.formData();
     const id_serie = formData.get("id_serie")?.trim();
     const id_product_shipping = formData.get("id_product_shipping")?.trim();
-    const finalized = formData.get("finalizeInvoice") === "on";
-    const email_auto = formData.get("sendByEmail") === "on";
+    const finalized = formData.get("finalized") === "on";
+    const email_auto = formData.get("email_auto") === "on";
 
     if (!id_serie || !id_product_shipping) {
       return json(
@@ -143,7 +160,7 @@ export default function GesConfigPage() {
   return (
     <Layout>
       <div className="container d-flex justify-content-center align-items-center min-vh-100">
-        <div className="col-md-2 col-lg-6">
+        <div className="col-md-8 col-lg-6">
           <div className="card border-0 shadow-sm">
             <div className="card-body text-center">
               <h1 className="display-6 fw-bold mb-3">

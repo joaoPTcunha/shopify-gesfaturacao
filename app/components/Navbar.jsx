@@ -27,13 +27,13 @@ export default function Navbar({ isAuthenticated }) {
       lang="pt-PT"
     >
       <div className="container-fluid position-relative">
-        <Link className="navbar-brand d-flex align-items-center ms-2" to="/">
+        <div className="navbar-brand d-flex align-items-center ms-2" to="/">
           <img
             src="/icons/logo.png"
             alt="Logo GESFaturação"
             className="navbar-logo"
           />
-        </Link>
+        </div>
 
         <button
           className="navbar-toggler"
