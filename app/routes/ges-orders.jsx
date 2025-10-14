@@ -503,7 +503,7 @@ export async function action({ request }) {
     const status = error.message.includes("creation failed") ? 400 : 500;
     return json(
       {
-        error: `Error processing action: ${error.message}`,
+        error: `${error.message}`,
         orderId: orderId || order?.id || "unknown",
         orderNumber: orderNumber || order?.orderNumber || "unknown",
         actionType: actionType || "unknown",

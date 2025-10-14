@@ -1,3 +1,4 @@
+// OrdersTable.jsx
 import { useLoaderData, useSearchParams, useFetcher } from "@remix-run/react";
 import { useState, useMemo, useEffect } from "react";
 import { toast } from "sonner";
@@ -14,7 +15,6 @@ export default function OrdersTable() {
   const [isProcessing, setIsProcessing] = useState(false);
   const fetcher = useFetcher();
 
-  // Initialize pageSize from searchParams or default to 20
   const [pageSize, setPageSize] = useState(
     parseInt(searchParams.get("pageSize")) || 20,
   );
@@ -41,21 +41,78 @@ export default function OrdersTable() {
         isFinalized,
       } = fetcher.data;
 
-      if (error) {
-        const errorMessage = error || "Erro desconhecido ao processar o pedido";
-        toast.error(errorMessage, {
-          description: `Pedido: ${orderNumber} (ID: ${orderId})`,
-          duration: 5000,
-        });
-        return;
-      }
-
       if (success && actionType === "sendEmail") {
         if (isClient) {
           toast.success(`Email enviado com sucesso!`, {
-            description: `Fatura: ${invoiceNumber}`,
+            description: `Fatura: ${invoiceNumber}, Encomenda: ${orderNumber}`,
             duration: 3000,
           });
+        }
+      }
+
+      if (error && actionType === "sendEmail") {
+        if (isClient) {
+          toast.error(error, {
+            duration: 3000,
+          });
+        }
+      }
+
+      if (success && actionType === "downloadInvoice") {
+        setOrders((prevOrders) =>
+          prevOrders.map((order) =>
+            order.id === orderId ? { ...order, invoiceNumber } : order,
+          ),
+        );
+
+        if (isClient && invoiceFile) {
+          try {
+            const { contentType, data, filename } = invoiceFile;
+            if (!data || typeof data !== "string")
+              throw new Error("Invalid Base64 data");
+
+            toast.success("Download da fatura iniciado!", {
+              description: `Fatura: ${invoiceNumber}, Encomenda: ${orderNumber}`,
+              duration: 3000,
+            });
+
+            const byteCharacters = atob(data);
+            const byteNumbers = new Array(byteCharacters.length);
+            for (let i = 0; i < byteCharacters.length; i++) {
+              byteNumbers[i] = byteCharacters.charCodeAt(i);
+            }
+            const byteArray = new Uint8Array(byteNumbers);
+            const blob = new Blob([byteArray], { type: contentType });
+            const url = window.URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            window.URL.revokeObjectURL(url);
+          } catch (err) {
+            console.error("[OrdersTable] Download error:", err);
+            toast.error(
+              `Falha ao carregar o documento PDF para o pedido ${orderNumber}.`,
+              {
+                description: `Erro: ${err.message}`,
+                duration: 5000,
+              },
+            );
+          }
+        } else if (isClient) {
+          console.error(
+            "[OrdersTable] No invoiceFile in downloadInvoice response:",
+            fetcher.data,
+          );
+          toast.error(
+            `Falha ao baixar a fatura para o pedido ${orderNumber}.`,
+            {
+              description: "Nenhum arquivo de fatura retornado pelo servidor.",
+              duration: 5000,
+            },
+          );
         }
       }
 
@@ -67,58 +124,21 @@ export default function OrdersTable() {
         );
 
         if (isClient) {
-          /*           console.log({ invoiceNumber, isFinalized, emailSent });
-           */ if (emailSent) {
+          if (emailSent) {
             toast.success("Fatura enviada por email com sucesso!", {
               description: `Fatura: ${invoiceNumber}, Encomenda: ${orderNumber}`,
               duration: 3000,
             });
           } else if (isFinalized) {
-            toast.success(
-              `Fatura gerada com sucesso!`,
-
-              {
-                description: `Fatura: ${invoiceNumber}, Encomenda: ${orderNumber}`,
-                duration: 3000,
-              },
-            );
+            toast.success(`Fatura gerada com sucesso!`, {
+              description: `Fatura: ${invoiceNumber}, Encomenda: ${orderNumber}`,
+              duration: 3000,
+            });
           } else {
             toast.success(`Fatura rascunho gerada com sucesso!`, {
               description: `Encomenda: ${orderNumber}`,
               duration: 3000,
             });
-          }
-
-          if (invoiceFile) {
-            try {
-              const { contentType, data, filename } = invoiceFile;
-              if (!data || typeof data !== "string")
-                throw new Error("Invalid Base64 data");
-
-              const byteCharacters = atob(data);
-              const byteNumbers = new Array(byteCharacters.length);
-              for (let i = 0; i < byteCharacters.length; i++) {
-                byteNumbers[i] = byteCharacters.charCodeAt(i);
-              }
-              const byteArray = new Uint8Array(byteNumbers);
-              const blob = new Blob([byteArray], { type: contentType });
-              const url = window.URL.createObjectURL(blob);
-              const link = document.createElement("a");
-              link.href = url;
-              link.download = filename;
-              document.body.appendChild(link);
-              link.click();
-              document.body.removeChild(link);
-              window.URL.revokeObjectURL(url);
-            } catch (err) {
-              toast.error(
-                `Falha ao carregar o documento PDF para o pedido ${orderNumber}.`,
-                {
-                  description: `Erro: ${err.message}`,
-                  duration: 5000,
-                },
-              );
-            }
           }
         }
       }
@@ -234,7 +254,7 @@ export default function OrdersTable() {
       return (
         order.orderNumber.toLowerCase().includes(lowerTerm) ||
         order.customerName.toLowerCase().includes(lowerTerm) ||
-        formatDate(order.orderDate).toLowerCase().includes(lowerTerm) || // Use formatDate for search
+        formatDate(order.orderDate).toLowerCase().includes(lowerTerm) ||
         order.totalValue.toFixed(2).includes(lowerTerm) ||
         (order.invoiceNumber || "").toLowerCase().includes(lowerTerm) ||
         order.shippingAddress?.city?.toLowerCase().includes(lowerTerm) ||
