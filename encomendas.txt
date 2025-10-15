@@ -15,10 +15,5 @@ sho-jc4041 -> 1 + 1 (iva 0 com motivo de isenção) + Portes (1 €) (TOTAL = 50
 
 
 !!!
-
-3- Erro ao criar fatura: Motivo de isenção inválido. Tens de dizer em qual artigo é
-
-4- Após clicar no botão Gerar Fatura deves coloca-lo em disabled enquanto o pedido esta a ser feito, caso contrario o utilizador pode clicar varias vezes nele
-
 5- Resposividade
-
+6- Erro caso que nenhuma serie e portes

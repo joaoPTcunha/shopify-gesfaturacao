@@ -1,22 +1,21 @@
-// OrdersTable.jsx
 import { useLoaderData, useSearchParams, useFetcher } from "@remix-run/react";
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, Suspense, lazy } from "react";
 import { toast } from "sonner";
 import Layout from "./Layout";
 
-export default function OrdersTable() {
+// Lazy-load non-critical components
+const OrderCard = lazy(() => import("./OrderCard"));
+
+export default function OrdersTable({ isAuthenticated }) {
   const { orders: initialOrders, error } = useLoaderData();
   const [orders, setOrders] = useState(initialOrders);
   const [searchParams, setSearchParams] = useSearchParams();
-  const [showModal, setShowModal] = useState(false);
-  const [selectedOrder, setSelectedOrder] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [isClient, setIsClient] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const fetcher = useFetcher();
-
   const [pageSize, setPageSize] = useState(
-    parseInt(searchParams.get("pageSize")) || 20,
+    parseInt(searchParams.get("pageSize")) || 10,
   );
 
   useEffect(() => {
@@ -52,17 +51,13 @@ export default function OrdersTable() {
 
       if (error && actionType === "sendEmail") {
         if (isClient) {
-          toast.error(error, {
-            duration: 3000,
-          });
+          toast.error(error, { duration: 3000 });
         }
       }
 
       if (error && actionType === "generateInvoice") {
         if (isClient) {
-          toast.error(error, {
-            duration: 5000,
-          });
+          toast.error(error, { duration: 5000 });
         }
       }
 
@@ -256,26 +251,13 @@ export default function OrdersTable() {
   const translateStatus = (status) =>
     status === "PAID" ? "Pagamento aceite" : status;
 
-  const calculateOrderSummary = (lineItems) => {
-    const totalItems = lineItems.reduce(
-      (sum, item) => sum + (item.quantity || 0),
-      0,
-    );
-    const subtotal = lineItems.reduce(
-      (sum, item) => sum + (item.quantity || 0) * (item.unitPrice || 0),
-      0,
-    );
-    return { totalItems, subtotal };
-  };
-
   const formatDate = (dateString) => {
     const date = new Date(dateString);
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, "0");
-    const day = String(date.getDate()).padStart(2, "0");
-    const hours = String(date.getHours()).padStart(2, "0");
-    const minutes = String(date.getMinutes()).padStart(2, "0");
-    return `${year}-${month}-${day} ${hours}:${minutes}`;
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
+      date.getDate(),
+    ).padStart(2, "0")} ${String(date.getHours()).padStart(2, "0")}:${String(
+      date.getMinutes(),
+    ).padStart(2, "0")}`;
   };
 
   const goToPage = (page) => {
@@ -295,24 +277,28 @@ export default function OrdersTable() {
   const filteredOrders = useMemo(() => {
     if (!searchTerm) return orders;
     const lowerTerm = searchTerm.toLowerCase();
-    return orders.filter((order) => {
-      return (
-        order.orderNumber.toLowerCase().includes(lowerTerm) ||
-        order.customerName.toLowerCase().includes(lowerTerm) ||
-        formatDate(order.orderDate).toLowerCase().includes(lowerTerm) ||
-        order.totalValue.toFixed(2).includes(lowerTerm) ||
-        (order.invoiceNumber || "").toLowerCase().includes(lowerTerm) ||
-        order.shippingAddress?.city?.toLowerCase().includes(lowerTerm) ||
-        order.billingAddress?.city?.toLowerCase().includes(lowerTerm)
-      );
-    });
+    return orders.filter((order) =>
+      [
+        order.orderNumber,
+        order.customerName,
+        formatDate(order.orderDate),
+        order.totalValue.toFixed(2),
+        order.invoiceNumber || "",
+        order.shippingAddress?.city || "",
+        order.billingAddress?.city || "",
+      ].some((field) => field.toLowerCase().includes(lowerTerm)),
+    );
   }, [orders, searchTerm]);
 
   const totalPages = Math.ceil(filteredOrders.length / pageSize);
 
-  const paginatedOrders = filteredOrders.slice(
-    (currentPage - 1) * pageSize,
-    currentPage * pageSize,
+  const paginatedOrders = useMemo(
+    () =>
+      filteredOrders.slice(
+        (currentPage - 1) * pageSize,
+        currentPage * pageSize,
+      ),
+    [filteredOrders, currentPage, pageSize],
   );
 
   const generatePagination = () => {
@@ -371,43 +357,44 @@ export default function OrdersTable() {
   };
 
   return (
-    <Layout>
-      <div className="container py-5">
-        <h1 className="display-6 fw-bold mb-4">Encomendas Pagas</h1>
+    <Layout isAuthenticated={isAuthenticated}>
+      <div className="main-content">
+        <div className="container py-4">
+          <h1 className="display-6 fw-bold mb-4">Encomendas Pagas</h1>
 
-        {error && <div className="alert alert-danger">{error}</div>}
+          {error && <div className="alert alert-danger">{error}</div>}
 
-        <div className="mb-4 d-flex align-items-center">
-          <div className="me-3 flex-grow-1">
-            <input
-              type="text"
-              className="form-control"
-              placeholder="Pesquisar por N.º Encomenda, Cliente, Data, Valor com IVA, N.º Fatura ou Cidade..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
+          <div className="mb-4 d-flex flex-column flex-md-row align-items-md-center">
+            <div className="me-md-3 mb-3 mb-md-0 flex-grow-1">
+              <input
+                type="text"
+                className="form-control"
+                placeholder="Pesquisar por N.º Encomenda, Cliente, Data, Valor, Fatura, Cidade..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+            </div>
+            <div className="d-flex align-items-center">
+              <label htmlFor="pageSize" className="me-2">
+                Encomendas por página:
+              </label>
+              <select
+                id="pageSize"
+                className="form-select"
+                style={{ width: "100px" }}
+                value={pageSize}
+                onChange={handlePageSizeChange}
+              >
+                <option value="5">5</option>
+                <option value="10">10</option>
+                <option value="20">20</option>
+                <option value="50">50</option>
+              </select>
+            </div>
           </div>
-          <div className="d-flex align-items-center">
-            <label htmlFor="pageSize" className="me-2">
-              Encomendas por página:
-            </label>
-            <select
-              id="pageSize"
-              className="form-select"
-              style={{ width: "100px" }}
-              value={pageSize}
-              onChange={handlePageSizeChange}
-            >
-              <option value="10">10</option>
-              <option value="20">20</option>
-              <option value="50">50</option>
-              <option value="100">100</option>
-            </select>
-          </div>
-        </div>
 
-        <div className="card border-0 shadow-sm">
-          <div className="card-body table-responsive">
+          {/* Desktop Table Layout */}
+          <div className="table-responsive">
             <table className="table table-hover">
               <thead>
                 <tr>
@@ -450,6 +437,7 @@ export default function OrdersTable() {
                               )
                             }
                             disabled={isProcessing}
+                            aria-label={`Download fatura ${order.invoiceNumber}`}
                           >
                             {order.invoiceNumber}
                           </button>
@@ -463,13 +451,14 @@ export default function OrdersTable() {
                           title="Ver Detalhes no Shopify"
                           onClick={() => handleShowDetails(order)}
                           disabled={isProcessing}
+                          aria-label={`Ver detalhes do pedido ${order.orderNumber} no Shopify`}
                         >
                           <img
                             src="/icons/magnifying-glass.png"
                             alt="Ver Detalhes no Shopify"
+                            width="22"
+                            height="22"
                             style={{
-                              width: "22px",
-                              height: "22px",
                               filter: isProcessing ? "grayscale(100%)" : "none",
                             }}
                           />
@@ -487,13 +476,14 @@ export default function OrdersTable() {
                               )
                             }
                             disabled={isProcessing}
+                            aria-label={`Enviar email com fatura para o pedido ${order.orderNumber}`}
                           >
                             <img
                               src="/icons/mail.png"
                               alt="Enviar Email"
+                              width="22"
+                              height="22"
                               style={{
-                                width: "22px",
-                                height: "22px",
                                 filter: isProcessing
                                   ? "grayscale(100%)"
                                   : "none",
@@ -508,13 +498,14 @@ export default function OrdersTable() {
                               handleGenerateInvoice(order.id, order.orderNumber)
                             }
                             disabled={isProcessing}
+                            aria-label={`Gerar fatura para o pedido ${order.orderNumber}`}
                           >
                             <img
                               src="/icons/invoice.png"
                               alt="Gerar Fatura"
+                              width="22"
+                              height="22"
                               style={{
-                                width: "22px",
-                                height: "22px",
                                 filter: isProcessing
                                   ? "grayscale(100%)"
                                   : "none",
@@ -535,18 +526,48 @@ export default function OrdersTable() {
               </tbody>
             </table>
           </div>
-        </div>
 
-        {totalPages > 1 && (
-          <nav aria-label="Paginação de pedidos">
-            <ul className="pagination justify-content-center mt-4">
-              {generatePagination()}
-            </ul>
-          </nav>
-        )}
+          {/* Mobile Card Layout */}
+          <Suspense
+            fallback={<div className="text-center p-4">Carregando...</div>}
+          >
+            <div className="orders-container">
+              {paginatedOrders.length > 0 ? (
+                paginatedOrders.map((order) => (
+                  <OrderCard
+                    key={order.id}
+                    order={order}
+                    isProcessing={isProcessing}
+                    handleShowDetails={handleShowDetails}
+                    handleSendEmail={handleSendEmail}
+                    handleGenerateInvoice={handleGenerateInvoice}
+                    translateStatus={translateStatus}
+                    formatDate={formatDate}
+                  />
+                ))
+              ) : (
+                <div className="text-center p-4">
+                  Nenhuma ordem paga encontrada.
+                </div>
+              )}
+            </div>
+          </Suspense>
+
+          {totalPages > 1 && (
+            <nav aria-label="Paginação de pedidos">
+              <ul className="pagination justify-content-center mt-4">
+                {generatePagination()}
+              </ul>
+            </nav>
+          )}
+        </div>
       </div>
 
-      <style>{`
+      <style jsx>{`
+        .main-content {
+          transition: margin-top 0.3s ease;
+          min-height: 100vh;
+        }
         .invoice-link:disabled {
           color: #6c757d;
           cursor: not-allowed;
@@ -558,15 +579,34 @@ export default function OrdersTable() {
           opacity: 0.6;
           cursor: not-allowed;
         }
-        .table th, .table td {
+        .table th,
+        .table td {
           vertical-align: middle;
         }
-        .card-header {
-          font-size: 1.1rem;
-          font-weight: 500;
+        @media (min-width: 768px) {
+          .orders-container {
+            display: none;
+          }
+          .table-responsive {
+            display: block;
+          }
         }
-        .text-end p {
-          margin-bottom: 0.5rem;
+        @media (max-width: 767.98px) {
+          .table-responsive {
+            display: none;
+          }
+          .orders-container {
+            display: block;
+          }
+          .btn-sm {
+            padding: 0.3rem 0.6rem;
+          }
+          .form-control,
+          .form-select,
+          .page-link {
+            font-size: 0.9rem;
+            padding: 0.4rem 0.6rem;
+          }
         }
       `}</style>
     </Layout>

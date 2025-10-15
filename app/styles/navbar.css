@@ -47,7 +47,7 @@
   top: 0;
   left: 0;
   width: 0%;
-  transition: width 250ms ease-in-out;
+  transition: width 300ms ease-in-out;
 }
 
 .custom-navbar .nav-link:hover::before {
@@ -58,10 +58,37 @@
   color: rgb(255, 221, 182) !important;
 }
 
-.navbar-toggler {
-  border-color: rgba(255, 255, 255, 0.877);
-}
-
 .navbar-nav {
   align-items: center;
+}
+
+@media (max-width: 991px) {
+  .navbar-collapse.collapse.show {
+    display: block;
+    position: relative;
+  }
+
+  .navbar-toggler-icon {
+    background-image: url("data:image/svg+xml;charset=utf8,%3Csvg viewBox='0 0 30 30' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath stroke='rgb(255, 221, 182)' stroke-width='2' stroke-linecap='round' stroke-miterlimit='10' d='M4 7h22M4 15h22M4 23h22'/%3E%3C/svg%3E") !important;
+  }
+  .navbar-collapse.collapse {
+    transition:
+      height 0.3s ease,
+      opacity 0.3s ease;
+    overflow: hidden;
+  }
+
+  .navbar-collapse.collapse.show {
+    height: auto;
+    opacity: 1;
+  }
+
+  .navbar-collapse.collapsing {
+    height: 0 !important;
+    opacity: 0;
+  }
+
+  body {
+    transition: padding-top 0.5s ease;
+  }
 }

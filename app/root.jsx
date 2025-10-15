@@ -26,7 +26,7 @@ export async function loader() {
       login.date_expire &&
       new Date(login.date_expire) > new Date();
     return json({ isAuthenticated });
-  } catch (error) {
+  } catch {
     return json({ isAuthenticated: false });
   }
 }
@@ -34,16 +34,16 @@ export async function loader() {
 export default function App() {
   const { isAuthenticated } = useLoaderData();
 
+  useEffect(() => {
+    import("bootstrap/dist/js/bootstrap.bundle.min.js");
+  }, []);
+
   return (
     <html lang="pt-PT">
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width,initial-scale=1" />
         <link rel="preconnect" href="https://cdn.shopify.com/" />
-        <link
-          rel="stylesheet"
-          href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
-        />
         <link
           rel="stylesheet"
           href="https://cdn.shopify.com/static/fonts/inter/v4/styles.css"
