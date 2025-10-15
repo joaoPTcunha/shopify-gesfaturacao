@@ -2,11 +2,8 @@ import prisma from "../../prisma/client";
 
 export async function fetchClientDataFromOrder(order) {
   if (!order.customer && !order.billingAddress && !order.shippingAddress) {
-    console.error(
-      "[fetchClientDataFromOrder] No customer, billing address, or shipping address found in order",
-    );
     throw new Error(
-      "No customer, billing address, or shipping address found in order",
+      "Nenhum cliente, endereço de faturação ou endereço de envio encontrado no pedido",
     );
   }
 
@@ -14,8 +11,8 @@ export async function fetchClientDataFromOrder(order) {
     if (!name || name === "N/A") return "";
     return name
       .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "") // Remove accents
-      .replace(/[^a-zA-Z0-9\s]/g, "") // Remove special characters
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-zA-Z0-9\s]/g, "")
       .toLowerCase()
       .trim();
   };
@@ -69,41 +66,42 @@ export async function fetchClientDataFromOrder(order) {
   customerData.name =
     customerData.company !== "N/A" ? customerData.company : customerData.name;
 
-  // Fetch GESlogin for dom_licenca and token
   const login = await prisma.GESlogin.findFirst({
     orderBy: { date_login: "desc" },
   });
+
   if (!login || !login.token) {
-    console.error("[fetchClientDataFromOrder] No active GES session found");
-    throw new Error("No active GES session");
+    throw new Error(
+      "Não foi possível gerar a fatura. Por favor, aceda à página de login e introduza as suas credenciais.",
+    );
   }
 
   const expireDate = login.date_expire ? new Date(login.date_expire) : null;
   if (!expireDate || expireDate < new Date()) {
-    console.error("[fetchClientDataFromOrder] GES session expired");
     await prisma.GESlogin.delete({ where: { id: login.id } });
-    throw new Error("GES session expired");
+    throw new Error("Sessão GES expirada");
   }
 
   let apiUrl = login.dom_licenca;
   if (!apiUrl.endsWith("/")) apiUrl += "/";
 
   if (customerData.taxId === "N/A" || customerData.name === "N/A") {
-    throw new Error("Missing TIN or name for client search");
+    throw new Error("NIF ou nome do cliente ausente para a pesquisa");
   }
 
-  // Try searching with normalized name and company name
   const searchNames = [
     customerData.name,
     customerData.company !== "N/A" ? customerData.company : null,
   ].filter(Boolean);
 
   let clientId = null;
-  let clientStatus = "not_found";
+  let clientStatus = "não_encontrado";
 
   for (const searchName of searchNames) {
     const normalizedSearchName = normalizeName(searchName);
-    const searchUrl = `${apiUrl}clients/tin/search/${encodeURIComponent(customerData.taxId)}/${encodeURIComponent(normalizedSearchName)}`;
+    const searchUrl = `${apiUrl}clients/tin/search/${encodeURIComponent(
+      customerData.taxId,
+    )}/${encodeURIComponent(normalizedSearchName)}`;
     let searchResponse;
     try {
       searchResponse = await fetch(searchUrl, {
@@ -114,38 +112,29 @@ export async function fetchClientDataFromOrder(order) {
           "Content-Type": "application/json",
         },
       });
-    } catch (fetchError) {
-      console.error(
-        `[fetchClientDataFromOrder] Fetch failed for search: ${fetchError.message}`,
-      );
+    } catch {
       continue;
     }
 
     let searchResponseText;
     try {
       searchResponseText = await searchResponse.text();
-    } catch (textError) {
+    } catch {
       continue;
     }
 
     let searchResponseBody;
     try {
       searchResponseBody = JSON.parse(searchResponseText);
-    } catch (parseError) {
-      console.error(
-        `[fetchClientDataFromOrder] Failed to parse search response as JSON: ${parseError.message}`,
-      );
-      searchResponseBody = {};
+    } catch {
       continue;
     }
 
     if (searchResponse.ok) {
       const client = searchResponseBody;
-      if (!client.data?.id && !client.id) {
-        continue;
-      }
+      if (!client.data?.id && !client.id) continue;
       clientId = client.data?.id || client.id;
-      clientStatus = "found";
+      clientStatus = "encontrado";
       break;
     }
   }
@@ -223,58 +212,43 @@ export async function fetchClientDataFromOrder(order) {
       body: JSON.stringify(clientData),
     });
   } catch (createError) {
-    console.error(
-      `[fetchClientDataFromOrder] Create fetch failed: ${createError.message}`,
-    );
-    throw new Error(`Client creation fetch failed: ${createError.message}`);
+    throw new Error(`Falha na criação do cliente: ${createError.message}`);
   }
 
   let createResponseText;
   try {
     createResponseText = await createResponse.text();
   } catch (textError) {
-    console.error(
-      `[fetchClientDataFromOrder] Failed to read create response text: ${textError.message}`,
-    );
-    throw new Error(`Failed to read create response: ${textError.message}`);
+    throw new Error(`Falha ao ler resposta da criação: ${textError.message}`);
   }
 
   if (createResponse.ok) {
     try {
       if (!createResponseText) {
-        throw new Error("Empty response from GESfaturacao create");
+        throw new Error("Resposta vazia da criação no GESfaturacao");
       }
       const newClient = JSON.parse(createResponseText);
-
       if (!newClient.data?.id && !newClient.id) {
-        console.error(
-          `[fetchClientDataFromOrder] Client ID missing in create response for order ${order.orderNumber}`,
+        throw new Error(
+          "ID do cliente ausente na resposta de criação do GESfaturacao",
         );
-        throw new Error("Client ID missing in GESfaturacao create response");
       }
       return {
         clientId: newClient.data?.id || newClient.id,
         found: true,
         customerData,
-        status: "created",
+        status: "criado",
       };
     } catch (parseError) {
-      console.error(
-        `[fetchClientDataFromOrder] Failed to parse create response for order ${order.orderNumber}: ${parseError.message}`,
-        `Raw response: ${createResponseText}`,
-      );
       throw new Error(
-        `Invalid JSON response from GESfaturacao create: ${createResponseText}`,
+        `Resposta JSON inválida da criação no GESfaturacao: ${createResponseText}`,
       );
     }
   } else {
     let createResponseBody;
     try {
       createResponseBody = JSON.parse(createResponseText);
-    } catch (parseError) {
-      console.error(
-        `[fetchClientDataFromOrder] Failed to parse create response as JSON: ${parseError.message}`,
-      );
+    } catch {
       createResponseBody = {};
     }
 
@@ -284,7 +258,9 @@ export async function fetchClientDataFromOrder(order) {
     ) {
       for (const searchName of searchNames) {
         const normalizedSearchName = normalizeName(searchName);
-        const retrySearchUrl = `${apiUrl}clients/tin/search/${encodeURIComponent(customerData.taxId)}/${encodeURIComponent(normalizedSearchName)}`;
+        const retrySearchUrl = `${apiUrl}clients/tin/search/${encodeURIComponent(
+          customerData.taxId,
+        )}/${encodeURIComponent(normalizedSearchName)}`;
 
         let retrySearchResponse;
         try {
@@ -296,49 +272,38 @@ export async function fetchClientDataFromOrder(order) {
               "Content-Type": "application/json",
             },
           });
-        } catch (retryError) {
-          console.error(
-            `[fetchClientDataFromOrder] Retry search fetch failed: ${retryError.message}`,
-          );
+        } catch {
           continue;
         }
 
         let retrySearchResponseText;
         try {
           retrySearchResponseText = await retrySearchResponse.text();
-        } catch (textError) {
-          console.error(
-            `[fetchClientDataFromOrder] Failed to read retry search response text: ${textError.message}`,
-          );
+        } catch {
           continue;
         }
 
         if (retrySearchResponse.ok) {
           try {
             const client = JSON.parse(retrySearchResponseText);
-            if (!client.data?.id && !client.id) {
-              continue;
-            }
+            if (!client.data?.id && !client.id) continue;
             return {
               clientId: client.data?.id || client.id,
               found: true,
               customerData,
-              status: "found",
+              status: "encontrado",
             };
-          } catch (parseError) {
-            console.error(
-              `[fetchClientDataFromOrder] Failed to parse retry search response as JSON: ${parseError.message}`,
-            );
+          } catch {
             continue;
           }
         }
       }
       throw new Error(
-        `Retry client search failed: Unable to find client with VAT ${customerData.taxId}`,
+        `Falha na busca de retry: Não foi possível encontrar cliente com NIF ${customerData.taxId}`,
       );
     }
     throw new Error(
-      `Client creation failed: ${createResponseText || "Unknown error"}`,
+      `Falha na criação do cliente: ${createResponseText || "Erro desconhecido"}`,
     );
   }
 }

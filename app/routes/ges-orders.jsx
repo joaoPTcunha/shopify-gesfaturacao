@@ -1,4 +1,7 @@
 import { json } from "@remix-run/node";
+import { useActionData, useLoaderData, useNavigate } from "@remix-run/react";
+import { useEffect } from "react";
+import { toast } from "sonner";
 import prisma from "../../prisma/client";
 import OrdersTable from "../components/OrdersTable";
 import { fetchClientDataFromOrder } from "../services/client";
@@ -10,7 +13,7 @@ import { sendEmail } from "../services/sendEmail";
 export async function loader({ request }) {
   try {
     const url = new URL(request.url);
-    const limit = Math.min(parseInt(url.searchParams.get("limit")) || 50, 250); // Default 50, max 250
+    const limit = Math.min(parseInt(url.searchParams.get("limit")) || 50, 250);
     const offset = parseInt(url.searchParams.get("offset")) || 0;
 
     const query = `
@@ -189,7 +192,7 @@ export async function loader({ request }) {
           }
         }
       }
-      `;
+    `;
 
     const variables = {
       first: limit,
@@ -211,7 +214,9 @@ export async function loader({ request }) {
     const data = await response.json();
 
     if (data.errors) {
-      throw new Error(JSON.stringify(data.errors));
+      throw new Error(
+        "Erro ao consultar a API do Shopify: " + JSON.stringify(data.errors),
+      );
     }
 
     if (!data.data || !data.data.orders || !data.data.orders.edges) {
@@ -252,8 +257,8 @@ export async function loader({ request }) {
           ),
           taxLines: item.taxLines || [],
           discountAllocations: item.discountAllocations || [],
-          sku: item.variant?.sku || "", // Corrected to use variant.sku
-          variant: item.variant, // Include variant for compatibility
+          sku: item.variant?.sku || "",
+          variant: item.variant,
         })) || [],
       discountApplications: node.discountApplications?.edges || [],
       shippingAddress: node.shippingAddress
@@ -296,7 +301,6 @@ export async function loader({ request }) {
         : null,
     }));
 
-    // Fetch invoice numbers from GESinvoices
     const orderIds = orders.map((order) => order.id.toString());
     const invoices = await prisma.gESinvoices.findMany({
       where: {
@@ -310,7 +314,6 @@ export async function loader({ request }) {
       },
     });
 
-    // Merge invoice numbers into orders
     const ordersWithInvoices = orders.map((order) => {
       const invoice = invoices.find(
         (inv) => inv.order_id === order.id.toString(),
@@ -324,8 +327,11 @@ export async function loader({ request }) {
 
     return json({ orders: ordersWithInvoices, error: null });
   } catch (error) {
-    console.error("Erro ao buscar pedidos:", error);
-    return json({ orders: [], error: error.message }, { status: 500 });
+    console.error("Erro ao carregar pedidos:", error);
+    return json(
+      { orders: [], error: `Erro ao carregar pedidos: ${error.message}` },
+      { status: 500 },
+    );
   }
 }
 
@@ -346,34 +352,38 @@ export async function action({ request }) {
     const invoiceNumber = formData.get("invoiceNumber")?.toString();
 
     if (!orderId) {
-      throw new Error("orderId is missing in formData");
+      throw new Error("O ID do pedido está ausente nos dados do formulário");
     }
 
     if (actionType === "generateInvoice") {
       const orderData = formData.get("order");
       if (!orderData) {
-        throw new Error("No order data provided in FormData");
+        throw new Error("Nenhum dado do pedido fornecido no formulário");
       }
 
       try {
         order = JSON.parse(orderData);
       } catch (parseError) {
-        throw new Error(`Failed to parse order data: ${parseError.message}`);
+        throw new Error(
+          `Falha ao processar os dados do pedido: ${parseError.message}`,
+        );
       }
 
       if (order.id !== orderId) {
-        throw new Error("Mismatch between orderId in formData and order data");
+        throw new Error(
+          "Inconsistência entre o ID do pedido no formulário e nos dados do pedido",
+        );
       }
 
       clientResult = await fetchClientDataFromOrder(order);
 
       if (!clientResult.clientId || !clientResult.status) {
         console.error(
-          `[ges-orders/action] Invalid client result for order ${order.orderNumber}: missing clientId or status`,
+          `[ges-orders/action] Resultado inválido do cliente para o pedido ${order.orderNumber}: ID ou estado ausente`,
           JSON.stringify(clientResult, null, 2),
         );
         throw new Error(
-          "Invalid response from fetchClientDataFromOrder: missing clientId or status",
+          "Resposta inválida de fetchClientDataFromOrder: ID ou estado do cliente ausente",
         );
       }
 
@@ -392,16 +402,23 @@ export async function action({ request }) {
         productResults.some((result) => !result.productId || !result.status)
       ) {
         console.error(
-          `[ges-orders/action] Invalid product result for order ${order.orderNumber}:`,
+          `[ges-orders/action] Resultado inválido do produto para o pedido ${order.orderNumber}:`,
           JSON.stringify(productResults, null, 2),
         );
         throw new Error(
-          "Invalid response from fetchProductDataFromOrder: missing productId or status",
+          "Resposta inválida de fetchProductDataFromOrder: ID ou estado do produto ausente",
         );
       }
 
       const invoiceResult = await generateInvoice(order);
-      return json({ ...invoiceResult, orderId, orderNumber, actionType });
+      return json({
+        ...invoiceResult,
+        orderId,
+        orderNumber,
+        actionType,
+        success: true,
+        message: `Fatura gerada com sucesso para o pedido ${orderNumber}`,
+      });
     } else if (actionType === "downloadInvoice") {
       const existingInvoice = await prisma.gESinvoices.findFirst({
         where: { order_id: orderId },
@@ -409,7 +426,7 @@ export async function action({ request }) {
 
       if (!existingInvoice || existingInvoice.invoice_status !== 1) {
         throw new Error(
-          `No finalized invoice found for order ${orderNumber || orderId}`,
+          `Nenhuma fatura finalizada encontrada para o pedido ${orderNumber || orderId}`,
         );
       }
 
@@ -419,13 +436,13 @@ export async function action({ request }) {
       });
 
       if (!login || !login.token || !login.dom_licenca || !login.id_serie) {
-        throw new Error("No active GES session found");
+        throw new Error("Login ou configurações do GESFaturação em falta.");
       }
 
       const expireDate = login.date_expire ? new Date(login.date_expire) : null;
       if (!expireDate || expireDate < new Date()) {
         await prisma.gESlogin.delete({ where: { id: login.id } });
-        throw new Error("GES session expired");
+        throw new Error("Sessão GES expirada");
       }
 
       let apiUrl = login.dom_licenca;
@@ -445,6 +462,7 @@ export async function action({ request }) {
         actionType,
         invoiceFile,
         invoiceNumber: existingInvoice.invoice_number,
+        message: `Fatura ${existingInvoice.invoice_number} descarregada com sucesso`,
       });
     } else if (actionType === "sendEmail") {
       if (
@@ -455,7 +473,7 @@ export async function action({ request }) {
         invoiceNumber === "N/A"
       ) {
         throw new Error(
-          `Missing or invalid parameters for sendEmail: orderId=${orderId}, orderNumber=${orderNumber}, customerEmail=${customerEmail}, invoiceNumber=${invoiceNumber}`,
+          `Parâmetros ausentes ou inválidos para enviar e-mail: orderId=${orderId}, orderNumber=${orderNumber}, customerEmail=${customerEmail}, invoiceNumber=${invoiceNumber}`,
         );
       }
 
@@ -465,7 +483,7 @@ export async function action({ request }) {
 
       if (!existingInvoice || existingInvoice.invoice_status !== 1) {
         throw new Error(
-          `No finalized invoice found for order ${orderNumber} with invoice number ${invoiceNumber}`,
+          `Nenhuma fatura finalizada encontrada para o pedido ${orderNumber} com o número de fatura ${invoiceNumber}`,
         );
       }
 
@@ -475,13 +493,15 @@ export async function action({ request }) {
       });
 
       if (!login || !login.token || !login.dom_licenca) {
-        throw new Error("No active GES session found");
+        throw new Error(
+          "Não foi possível enviar o e-mail. Por favor, aceda à página de login e introduza as suas credenciais.",
+        );
       }
 
       const expireDate = login.date_expire ? new Date(login.date_expire) : null;
       if (!expireDate || expireDate < new Date()) {
         await prisma.gESlogin.delete({ where: { id: login.id } });
-        throw new Error("GES session expired");
+        throw new Error("Sessão GES expirada");
       }
 
       let apiUrl = login.dom_licenca;
@@ -504,18 +524,19 @@ export async function action({ request }) {
         invoiceNumber,
         emailSent: true,
         emailResult,
+        message: `E-mail com a fatura ${invoiceNumber} enviado com sucesso`,
       });
     } else {
-      throw new Error(`Unknown action type: ${actionType}`);
+      throw new Error(`Tipo de ação desconhecido: ${actionType}`);
     }
   } catch (error) {
-    const status = error.message.includes("creation failed") ? 400 : 500;
+    const status = error.message.includes("criação falhou") ? 400 : 500;
     return json(
       {
-        error: `${error.message}`,
-        orderId: orderId || order?.id || "unknown",
-        orderNumber: orderNumber || order?.orderNumber || "unknown",
-        actionType: actionType || "unknown",
+        error: `Erro: ${error.message}`,
+        orderId: orderId || order?.id || "desconhecido",
+        orderNumber: orderNumber || order?.orderNumber || "desconhecido",
+        actionType: actionType || "desconhecido",
         clientId: clientResult?.clientId || null,
         clientFound: clientResult?.found || false,
         clientStatus: clientResult?.status || null,
@@ -527,5 +548,34 @@ export async function action({ request }) {
 }
 
 export default function Orders() {
-  return <OrdersTable />;
+  const { orders, error: loaderError } = useLoaderData();
+  const actionData = useActionData();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (loaderError) {
+      toast.error(loaderError, {
+        duration: 3000,
+      });
+    }
+
+    if (actionData) {
+      if (actionData.success) {
+        toast.success(actionData.message, {
+          duration: 3000,
+        });
+        if (actionData.actionType === "generateInvoice") {
+          setTimeout(() => {
+            navigate(0);
+          }, 3000);
+        }
+      } else if (actionData.error) {
+        toast.error(actionData.error, {
+          duration: 3000,
+        });
+      }
+    }
+  }, [actionData, loaderError, navigate]);
+
+  return <OrdersTable orders={orders} />;
 }

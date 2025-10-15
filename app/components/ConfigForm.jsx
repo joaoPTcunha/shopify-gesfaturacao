@@ -16,13 +16,14 @@ export default function ConfigForm() {
     finalized = true,
     email_auto = true,
     error: loaderError,
+    isLoggedIn = false,
   } = useLoaderData();
+
   const actionData = useActionData();
   const navigate = useNavigate();
 
   const [servicesSearch, setServicesSearch] = useState(
-    services?.find((service) => service.id === currentServiceId)?.description ||
-      "",
+    services?.find((s) => s.id === currentServiceId)?.description || "",
   );
   const [selectedServiceId, setSelectedServiceId] = useState(
     currentServiceId || "",
@@ -30,10 +31,9 @@ export default function ConfigForm() {
   const [showServicesDropdown, setShowServicesDropdown] = useState(false);
 
   const [seriesSearch, setSeriesSearch] = useState(
-    series?.find((serie) => serie.id === currentSerieId)?.name || "",
+    series?.find((s) => s.id === currentSerieId)?.name || "",
   );
   const [selectedSerieId, setSelectedSerieId] = useState(currentSerieId || "");
-
   const [finalizeChecked, setFinalizeChecked] = useState(finalized);
   const [emailAutoChecked, setEmailAutoChecked] = useState(email_auto);
   const [showSeriesDropdown, setShowSeriesDropdown] = useState(false);
@@ -71,13 +71,26 @@ export default function ConfigForm() {
   }, []);
 
   useEffect(() => {
-    if (loaderError || actionData?.error) {
-      toast.error(loaderError || actionData?.error, { duration: 5000 });
+    let errorMessage = null;
+
+    if (!isLoggedIn) {
+      errorMessage =
+        "Por favor, faça login antes de tentar guardar a configuração.";
+    } else if (loaderError) {
+      errorMessage = loaderError;
+    } else if (actionData?.error) {
+      errorMessage = actionData.error;
     }
+
+    if (errorMessage) {
+      toast.error(errorMessage, { duration: 5000 });
+    }
+
     if (actionData?.success) {
+      toast.success("Configuração guardada com sucesso!", { duration: 3000 });
       navigate("/ges-orders?configSaved=true");
     }
-  }, [loaderError, actionData, navigate]);
+  }, [loaderError, actionData, navigate, isLoggedIn]);
 
   const handleServicesSelect = (service) => {
     setSelectedServiceId(service.id);
@@ -105,12 +118,6 @@ export default function ConfigForm() {
 
   return (
     <Form method="post" className="p-2" lang="pt-PT">
-      {(actionData?.error || loaderError) && (
-        <div className="alert alert-danger">
-          Ocorreu um erro. Por favor, verifique os dados e tente iniciar sessão
-          novamente.
-        </div>
-      )}
       <div className="mb-4" ref={seriesRef}>
         <label htmlFor="seriesSearch" className="form-label fw-bold">
           Selecionar Série
@@ -238,14 +245,9 @@ export default function ConfigForm() {
           onChange={(e) => setFinalizeChecked(e.target.checked)}
           role="switch"
         />
-        <div className="d-flex flex-column">
-          <label
-            htmlFor="finalizeInvoice"
-            className="form-check-label fw-medium"
-          >
-            Finalizar Fatura
-          </label>
-        </div>
+        <label htmlFor="finalizeInvoice" className="form-check-label fw-medium">
+          Finalizar Fatura
+        </label>
       </div>
 
       <div className="mb-4 form-check form-switch">
@@ -258,10 +260,10 @@ export default function ConfigForm() {
           onChange={(e) => setEmailAutoChecked(e.target.checked)}
           role="switch"
         />
-        <div className="d-flex flex-column">
-          <label htmlFor="sendByEmail" className="form-check-label fw-semibold">
-            Enviar automaticamente a fatura por email após criação
-          </label>
+        <label htmlFor="sendByEmail" className="form-check-label fw-semibold">
+          Enviar automaticamente a fatura por email após criação
+        </label>
+        <div>
           <small className="text-secondary">
             ⚠ Atenção: Não é possível enviar faturas em estado "Rascunho" por
             email.
@@ -269,7 +271,11 @@ export default function ConfigForm() {
         </div>
       </div>
 
-      <button type="submit" className="mb-4 btn btn-primary w-100">
+      <button
+        type="submit"
+        className="mb-4 btn btn-primary w-100"
+        disabled={!isLoggedIn}
+      >
         Guardar Configuração
       </button>
     </Form>

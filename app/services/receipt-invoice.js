@@ -8,14 +8,14 @@ import { getMonetaryValue } from "../utils/getMonetaryValue";
 
 export async function generateInvoice(order) {
   if (!order.id || !order.orderNumber) {
-    throw new Error("Missing orderId or orderNumber");
+    throw new Error("Falta orderId ou orderNumber");
   }
   if (
     !order.lineItems ||
     !Array.isArray(order.lineItems) ||
     order.lineItems.length === 0
   ) {
-    throw new Error("No valid line items provided in order data");
+    throw new Error("Não foram fornecidos itens válidos na encomenda");
   }
 
   const login = await prisma.gESlogin.findFirst({
@@ -23,22 +23,21 @@ export async function generateInvoice(order) {
     orderBy: { date_login: "desc" },
   });
 
-  if (!login || !login.token || !login.dom_licenca || !login.id_serie) {
+  if (!login.id_serie || !login.id_product_shipping) {
     throw new Error(
-      "No active GES session, token, dom_licenca, or id_serie found",
+      "Configuração incompleta: por favor, defina a série e o produto de portes na página de configuração do GESFaturação.",
     );
   }
 
   const expireDate = login.date_expire ? new Date(login.date_expire) : null;
   if (!expireDate || expireDate < new Date()) {
-    await prisma.gESlogin.delete({ where: { id: login.id } }); // Fixed: Correct table name
-    throw new Error("GES session expired");
+    await prisma.gESlogin.delete({ where: { id: login.id } });
+    throw new Error("Sessão GES expirada");
   }
 
   let apiUrl = login.dom_licenca;
   if (!apiUrl.endsWith("/")) apiUrl += "/";
 
-  // Check for existing invoice
   const existingInvoice = await prisma.gESinvoices.findFirst({
     where: { order_id: order.id.toString() },
   });
@@ -47,11 +46,10 @@ export async function generateInvoice(order) {
     await prisma.gESinvoices.delete({ where: { id: existingInvoice.id } });
   }
 
-  // Fetch client data
   const clientResult = await fetchClientDataFromOrder(order);
   if (!clientResult.clientId || !clientResult.status) {
     throw new Error(
-      `Invalid response from fetchClientDataFromOrder: ${JSON.stringify(clientResult)}`,
+      `Resposta inválida de fetchClientDataFromOrder: ${JSON.stringify(clientResult)}`,
     );
   }
 
@@ -69,7 +67,7 @@ export async function generateInvoice(order) {
     availableTaxes = taxesData.data || [];
   } catch (error) {
     console.warn(
-      `[generateInvoice] Failed to fetch taxes: ${error.message}. Using default taxId: 1`,
+      `[generateInvoice] Falha ao obter taxas: ${error.message}. Usando taxId padrão: 1`,
     );
   }
 
@@ -82,11 +80,6 @@ export async function generateInvoice(order) {
   const invoiceLevelDiscount = discountData.invoiceLevelDiscount;
   const isProductSpecificDiscount = discountData.isProductSpecificDiscount;
 
-  console.log(
-    `[generateInvoice] discountOnly: ${JSON.stringify(discountOnly)} | isProductSpecificDiscount: ${isProductSpecificDiscount} | discountAmountExclTax: ${discountAmountExclTax} | invoiceLevelDiscount: ${invoiceLevelDiscount}`,
-  );
-
-  // Calculate line items
   const lines = [];
   const productResults = [];
   const orderCountry = order.shippingAddress?.country || "Portugal";
@@ -98,21 +91,20 @@ export async function generateInvoice(order) {
   for (const [index, item] of order.lineItems.entries()) {
     if (!item.title || !item.unitPrice || !item.productId) {
       throw new Error(
-        `Missing product title, unit price, or product ID for item: ${item.title || "unknown"}`,
+        `Falta título, preço unitário ou ID do produto para o item: ${item.title || "desconhecido"}`,
       );
     }
 
     const productResult = await fetchProductDataFromOrder(order, item);
     if (!productResult.productId || !productResult.status) {
       throw new Error(
-        `Invalid product data for ${item.title}: ${JSON.stringify(productResult)}`,
+        `Dados de produto inválidos para ${item.title}: ${JSON.stringify(productResult)}`,
       );
     }
 
     const isTaxable = item.taxable ?? true;
     const productTaxId = isTaxable ? 1 : 4;
 
-    // Calculate tax rate
     const taxRate = isTaxable
       ? item.taxLines?.length > 0
         ? item.taxLines[0].ratePercentage
@@ -137,15 +129,19 @@ export async function generateInvoice(order) {
     let productId;
     try {
       if (typeof item.productId !== "string" || !item.productId.includes("/")) {
-        throw new Error(`Invalid productId format for item: ${item.title}`);
+        throw new Error(
+          `Formato de productId inválido para o item: ${item.title}`,
+        );
       }
       productId = item.productId.split("/").pop();
       if (!productId) {
-        throw new Error(`Failed to extract productId for item: ${item.title}`);
+        throw new Error(
+          `Falha ao extrair productId para o item: ${item.title}`,
+        );
       }
     } catch (err) {
       console.warn(
-        `[generateInvoice] ${err.message}. Defaulting to item index for discount lookup.`,
+        `[generateInvoice] ${err.message}. Usando índice do item como padrão para pesquisa de desconto.`,
       );
       productId = `item-${index}`;
     }
@@ -162,9 +158,6 @@ export async function generateInvoice(order) {
       const gesProduct = productResult.productData.gesProduct;
       if (gesProduct && gesProduct.exemptionID) {
         exemptionId = parseInt(gesProduct.exemptionID, 10);
-        console.log(
-          `[generateInvoice] Using product exemptionID: ${exemptionId} for ${item.title}`,
-        );
       }
     }
 
@@ -279,7 +272,6 @@ export async function generateInvoice(order) {
     totalDiscountExclTax += originalShippingExclTax - shippingAfterDiscountExcl;
   }
 
-  // Calculate totals
   const totalBeforeDiscountsWithVat =
     subtotalProductsWithVat +
     (isFreeShipping
@@ -287,7 +279,6 @@ export async function generateInvoice(order) {
       : totalShippingWithVat);
   const expectedTotalWithVat = getMonetaryValue(order.totalValue, "totalValue");
 
-  // Apply general discount at invoice level
   let adjustedGlobalPercent = 0.0;
   if (!isProductSpecificDiscount && order.discountApplications?.length > 0) {
     const generalDiscount = order.discountApplications.find(
@@ -313,7 +304,6 @@ export async function generateInvoice(order) {
         adjustedGlobalPercent = parseFloat(adjustedGlobalPercent.toFixed(4));
       }
     }
-    // Override with invoiceLevelDiscount if available
     if (invoiceLevelDiscount > 0) {
       const totalExclTax =
         totalBaseExclTax + (isFreeShipping ? 0 : originalShippingExclTax);
@@ -323,35 +313,32 @@ export async function generateInvoice(order) {
     }
   }
 
-  // Verify total matches expected
   const calculatedTotalWithVat =
     (totalBaseExclTax + totalBaseVat) * (1 - adjustedGlobalPercent / 100.0);
   if (Math.abs(calculatedTotalWithVat - expectedTotalWithVat) > 0.01) {
     console.warn(
-      `[generateInvoice] Total mismatch: calculated=${calculatedTotalWithVat}, expected=${expectedTotalWithVat}`,
+      `[generateInvoice] Diferença no total: calculado=${calculatedTotalWithVat}, esperado=${expectedTotalWithVat}`,
     );
     if (totalBaseExclTax + totalBaseVat > 0) {
       adjustedGlobalPercent =
         100 * (1 - expectedTotalWithVat / (totalBaseExclTax + totalBaseVat));
       adjustedGlobalPercent = parseFloat(adjustedGlobalPercent.toFixed(4));
       console.log(
-        `[generateInvoice] Adjusted global discount to ${adjustedGlobalPercent}% to match expected total`,
+        `[generateInvoice] Desconto global ajustado para ${adjustedGlobalPercent}% para corresponder ao total esperado`,
       );
     }
   }
 
-  // Prepare observations
   let observations = order.note === "N/A" ? "" : order.note;
   if (adjustedGlobalPercent > 0) {
     const discountAmountWithVat =
       (adjustedGlobalPercent / 100) * (totalBaseExclTax + totalBaseVat);
-    observations += `\nGeneral discount applied: ${discountAmountWithVat.toFixed(2)} ${order.currency || "EUR"} (Global Discount: ${adjustedGlobalPercent}%)`;
+    observations += `\nDesconto geral aplicado: ${discountAmountWithVat.toFixed(2)} ${order.currency || "EUR"} (Desconto Global: ${adjustedGlobalPercent}%)`;
   }
   if (isFreeShipping) {
-    observations += `\nFree shipping applied: 100% discount on shipping costs`;
+    observations += `\nEnvio grátis aplicado: 100% de desconto nos custos de envio`;
   }
 
-  // Prepare invoice payload
   const date = new Date().toISOString().split("T")[0];
   const expirationDate = new Date();
   expirationDate.setMonth(expirationDate.getMonth() + 1);
@@ -373,11 +360,6 @@ export async function generateInvoice(order) {
     discount: parseFloat(adjustedGlobalPercent.toFixed(4)),
   };
 
-  console.log(
-    `[generateInvoice] Final payload: ${JSON.stringify(payload, null, 2)}`,
-  );
-
-  // Create invoice
   const createRIendpoint = `${apiUrl}sales/receipt-invoices`;
   let response;
   try {
@@ -391,8 +373,7 @@ export async function generateInvoice(order) {
       body: JSON.stringify(payload),
     });
   } catch (err) {
-    console.error(`[generateInvoice] Invoice creation failed: ${err.message}`);
-    throw new Error(`Invoice creation failed: ${err.message}`);
+    throw new Error(`Falha na criação da fatura: ${err.message}`);
   }
 
   const responseText = await response.text();
@@ -403,19 +384,15 @@ export async function generateInvoice(order) {
       result.error ||
       (result.errors ? JSON.stringify(result.errors) : null) ||
       response.statusText ||
-      "Unknown error";
-    console.error(`[generateInvoice] Failed to create invoice: ${errorMsg}`);
-    throw new Error(`Failed to create invoice: ${errorMsg}`);
+      "Erro desconhecido";
+    throw new Error(`Falha na criação da fatura: ${errorMsg}`);
   }
 
   let result;
   try {
     result = JSON.parse(responseText || "{}");
   } catch {
-    console.error(
-      `[generateInvoice] Failed to parse API response: ${responseText}`,
-    );
-    throw new Error(`Failed to parse API response: ${responseText}`);
+    throw new Error(`Falha ao analisar a resposta da API: ${responseText}`);
   }
 
   const invoiceId = result.data?.id || result.id;
@@ -442,16 +419,14 @@ export async function generateInvoice(order) {
         },
       });
     } catch (err) {
-      console.error(
-        `[generateInvoice] Failed to save invoice to database: ${err.message}`,
+      throw new Error(
+        `Falha ao guardar a fatura na base de dados: ${err.message}`,
       );
-      throw new Error(`Failed to save invoice to database: ${err.message}`);
     }
   }
 
   let invoiceFile = null;
-  /*   if (isFinalized || !isFinalized) {
-   */ try {
+  try {
     await new Promise((resolve) => setTimeout(resolve, 1000));
     const downloadEndpoint = `${apiUrl}sales/documents/${invoiceId}/type/FR`;
     const downloadResponse = await fetch(downloadEndpoint, {
@@ -464,20 +439,22 @@ export async function generateInvoice(order) {
     });
 
     if (!downloadResponse.ok) {
-      throw new Error(`Failed to download PDF: ${downloadResponse.statusText}`);
+      throw new Error(
+        `Falha ao descarregar PDF: ${downloadResponse.statusText}`,
+      );
     }
 
     const pdfData = await downloadResponse.json();
     const pdfBase64 = pdfData.data?.document;
     if (!pdfBase64) {
-      throw new Error("PDF document missing in GESfaturacao response");
+      throw new Error("Documento PDF ausente na resposta do GESfaturacao");
     }
 
     const pdfContent = Buffer.from(pdfBase64, "base64");
     const contentLength = pdfContent.length;
 
     if (pdfContent.toString("ascii", 0, 4) !== "%PDF") {
-      throw new Error("Invalid PDF content: missing %PDF header");
+      throw new Error("Conteúdo PDF inválido: falta o cabeçalho %PDF");
     }
 
     invoiceFile = {
@@ -490,7 +467,7 @@ export async function generateInvoice(order) {
     };
   } catch (err) {
     console.warn(
-      `[generateInvoice] Error downloading PDF for invoice ${savedInvoiceNumber}: ${err.message}`,
+      `[generateInvoice] Erro ao descarregar PDF para a fatura ${savedInvoiceNumber}: ${err.message}`,
     );
     invoiceFile = null;
   }
@@ -509,7 +486,7 @@ export async function generateInvoice(order) {
       emailActuallySent = true;
     } catch (err) {
       console.error(
-        `[generateInvoice] Failed to send email for invoice ${savedInvoiceNumber}: ${err.message}`,
+        `[generateInvoice] Falha ao enviar email para a fatura ${savedInvoiceNumber}: ${err.message}`,
       );
     }
   }

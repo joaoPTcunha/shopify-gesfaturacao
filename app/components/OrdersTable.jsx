@@ -14,21 +14,21 @@ export default function OrdersTable({ isAuthenticated }) {
   const [pageSize, setPageSize] = useState(
     parseInt(searchParams.get("pageSize")) || 10,
   );
+  const [orderErrors, setOrderErrors] = useState({});
+
+  // Function to check if an error is session-related
+  const isSessionError = (errorMessage) => {
+    const sessionErrors = [
+      "Nenhuma sessão GES ativa encontrada",
+      "Sessão GES expirada",
+      "Login ou configurações do GESFaturação em falta",
+    ];
+    return sessionErrors.some((err) => errorMessage.includes(err));
+  };
 
   useEffect(() => {
     setIsClient(true);
 
-    const urlParams = new URLSearchParams(window.location.search);
-    if (urlParams.get("configSaved") === "true") {
-      toast.success("Configurações guardadas com sucesso!", { duration: 3000 });
-      // Remove the query param
-      urlParams.delete("configSaved");
-      const newUrl = `${window.location.pathname}${urlParams.toString() ? "?" + urlParams.toString() : ""}`;
-      window.history.replaceState({}, "", newUrl);
-    }
-  }, []);
-
-  useEffect(() => {
     if (fetcher.state === "idle") {
       setIsProcessing(false);
     }
@@ -61,12 +61,31 @@ export default function OrdersTable({ isAuthenticated }) {
         toast.error(error, { duration: 5000 });
       }
 
+      if (error && actionType === "downloadInvoice" && isClient) {
+        // Only store non-session-related errors in orderErrors
+        if (!isSessionError(error)) {
+          setOrderErrors((prev) => ({
+            ...prev,
+            [orderId]: error,
+          }));
+        }
+        toast.error(error, {
+          description: `Encomenda: ${orderNumber}`,
+          duration: 5000,
+        });
+      }
+
       if (success && actionType === "downloadInvoice") {
         setOrders((prevOrders) =>
           prevOrders.map((order) =>
             order.id === orderId ? { ...order, invoiceNumber } : order,
           ),
         );
+        setOrderErrors((prev) => {
+          const newErrors = { ...prev };
+          delete newErrors[orderId];
+          return newErrors;
+        });
 
         if (isClient && invoiceFile) {
           try {
@@ -96,6 +115,10 @@ export default function OrdersTable({ isAuthenticated }) {
             window.URL.revokeObjectURL(url);
           } catch (err) {
             console.error("[OrdersTable] Download error:", err);
+            setOrderErrors((prev) => ({
+              ...prev,
+              [orderId]: `Falha ao carregar o documento PDF: ${err.message}`,
+            }));
             toast.error(
               `Falha ao carregar o documento PDF para o pedido ${orderNumber}.`,
               {
@@ -109,6 +132,10 @@ export default function OrdersTable({ isAuthenticated }) {
             "[OrdersTable] No invoiceFile in downloadInvoice response:",
             fetcher.data,
           );
+          setOrderErrors((prev) => ({
+            ...prev,
+            [orderId]: "Nenhum arquivo de fatura retornado pelo servidor.",
+          }));
           toast.error(
             `Falha ao baixar a fatura para o pedido ${orderNumber}.`,
             {
@@ -125,6 +152,11 @@ export default function OrdersTable({ isAuthenticated }) {
             order.id === orderId ? { ...order, invoiceNumber } : order,
           ),
         );
+        setOrderErrors((prev) => {
+          const newErrors = { ...prev };
+          delete newErrors[orderId];
+          return newErrors;
+        });
 
         if (isClient) {
           if (emailSent) {
@@ -172,6 +204,10 @@ export default function OrdersTable({ isAuthenticated }) {
             window.URL.revokeObjectURL(url);
           } catch (err) {
             console.error("[OrdersTable] Download error:", err);
+            setOrderErrors((prev) => ({
+              ...prev,
+              [orderId]: `Falha ao carregar o documento PDF: ${err.message}`,
+            }));
             toast.error(
               `Falha ao carregar o documento PDF para o pedido ${orderNumber}.`,
               {
@@ -375,7 +411,7 @@ export default function OrdersTable({ isAuthenticated }) {
           </div>
           <div className="d-flex align-items-center">
             <label htmlFor="pageSize" className="me-2">
-              NºEncomendas por página:
+              Encomendas por página:
             </label>
             <select
               id="pageSize"
@@ -421,17 +457,22 @@ export default function OrdersTable({ isAuthenticated }) {
                     <td>{order.totalValue.toFixed(2)} €</td>
                     <td>{translateStatus(order.status)}</td>
                     <td>
-                      {order.invoiceNumber && order.invoiceNumber !== "N/A" ? (
+                      {orderErrors[order.id] ? (
+                        <span className="text-danger">
+                          Erro: {orderErrors[order.id]}
+                        </span>
+                      ) : order.invoiceNumber &&
+                        order.invoiceNumber !== "N/A" ? (
                         <button
                           className="btn p-0 text-decoration-underline invoice-link"
                           title="Download da Fatura"
-                          onClick={() =>
+                          onClick={() => {
                             handleGenerateInvoice(
                               order.id,
                               order.orderNumber,
                               true,
-                            )
-                          }
+                            );
+                          }}
                           disabled={isProcessing}
                           aria-label={`Download fatura ${order.invoiceNumber}`}
                         >
@@ -574,17 +615,29 @@ export default function OrdersTable({ isAuthenticated }) {
                   <div className="order-row">
                     <span className="order-label">Fatura:</span>
                     <span>
-                      {order.invoiceNumber && order.invoiceNumber !== "N/A" ? (
+                      {orderErrors[order.id] ? (
+                        <span className="text-danger">
+                          Erro: {orderErrors[order.id]}
+                        </span>
+                      ) : order.invoiceNumber &&
+                        order.invoiceNumber !== "N/A" ? (
                         <button
                           className="btn p-0 text-decoration-underline invoice-link"
                           title="Download da Fatura"
-                          onClick={() =>
+                          onClick={() => {
+                            if (!isAuthenticated) {
+                              toast.error(
+                                "Login ou configurações do GESFaturação não estão concluídos. Por favor, verifique antes de gerar a fatura.",
+                                { duration: 4000 },
+                              );
+                              return;
+                            }
                             handleGenerateInvoice(
                               order.id,
                               order.orderNumber,
                               true,
-                            )
-                          }
+                            );
+                          }}
                           disabled={isProcessing}
                           aria-label={`Download fatura ${order.invoiceNumber}`}
                         >
