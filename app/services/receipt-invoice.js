@@ -330,14 +330,14 @@ export async function generateInvoice(order) {
   }
 
   let observations = order.note === "N/A" ? "" : order.note;
-  if (adjustedGlobalPercent > 0) {
+  /*   if (adjustedGlobalPercent > 0) {
     const discountAmountWithVat =
       (adjustedGlobalPercent / 100) * (totalBaseExclTax + totalBaseVat);
     observations += `\nDesconto geral aplicado: ${discountAmountWithVat.toFixed(2)} ${order.currency || "EUR"} (Desconto Global: ${adjustedGlobalPercent}%)`;
   }
   if (isFreeShipping) {
     observations += `\nEnvio grátis aplicado: 100% de desconto nos custos de envio`;
-  }
+  } */
 
   const date = new Date().toISOString().split("T")[0];
   const expirationDate = new Date();

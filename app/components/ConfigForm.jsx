@@ -241,6 +241,7 @@ export default function ConfigForm() {
           id="finalizeInvoice"
           name="finalized"
           className="form-check-input"
+          style={{ transform: "scale(1.3)", cursor: "pointer" }}
           checked={finalizeChecked}
           onChange={(e) => setFinalizeChecked(e.target.checked)}
           role="switch"
@@ -256,6 +257,7 @@ export default function ConfigForm() {
           id="sendByEmail"
           name="email_auto"
           className="form-check-input"
+          style={{ transform: "scale(1.3)", cursor: "pointer" }}
           checked={emailAutoChecked}
           onChange={(e) => setEmailAutoChecked(e.target.checked)}
           role="switch"
@@ -265,7 +267,7 @@ export default function ConfigForm() {
         </label>
         <div>
           <small className="text-secondary">
-            ⚠ Atenção: Não é possível enviar faturas em estado "Rascunho" por
+            Atenção: Não é possível enviar faturas em estado "Rascunho" por
             email.
           </small>
         </div>

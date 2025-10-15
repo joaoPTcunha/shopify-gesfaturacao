@@ -36,6 +36,7 @@ export default function LoginForm() {
           required
           aria-describedby="dom_licenca_help"
           placeholder="Introduza o Link da API GESFaturação"
+          autoComplete="url"
         />
       </div>
 
@@ -51,6 +52,7 @@ export default function LoginForm() {
           required
           placeholder="Introduza o seu nome de utilizador"
           aria-describedby="username_help"
+          autoComplete="username"
         />
       </div>
 
@@ -66,6 +68,7 @@ export default function LoginForm() {
           required
           placeholder="Introduza a sua palavra-passe"
           aria-describedby="password_help"
+          autoComplete="current-password"
         />
       </div>
 

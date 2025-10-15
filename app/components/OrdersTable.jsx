@@ -171,50 +171,48 @@ export default function OrdersTable({ isAuthenticated }) {
             });
           } else {
             toast.success(`Fatura rascunho gerada com sucesso!`, {
-              description: `Encomenda: ${orderNumber}`,
-              duration: 3000,
-            });
-          }
-        }
-        if (isClient && invoiceFile && !isFinalized) {
-          try {
-            const { contentType, data, filename } = invoiceFile;
-            if (!data || typeof data !== "string")
-              throw new Error("Invalid Base64 data");
-
-            toast.success("Download da fatura iniciado!", {
-              description: `Fatura: ${invoiceNumber}, Encomenda: ${orderNumber}`,
+              description: `Encomenda: ${orderNumber}${
+                invoiceFile ? ", download iniciado" : ""
+              }`,
               duration: 3000,
             });
 
-            const byteCharacters = atob(data);
-            const byteNumbers = new Array(byteCharacters.length);
-            for (let i = 0; i < byteCharacters.length; i++) {
-              byteNumbers[i] = byteCharacters.charCodeAt(i);
+            if (invoiceFile) {
+              try {
+                const { contentType, data, filename } = invoiceFile;
+                if (!data || typeof data !== "string")
+                  throw new Error("Invalid Base64 data");
+
+                const byteCharacters = atob(data);
+                const byteNumbers = new Array(byteCharacters.length);
+                for (let i = 0; i < byteCharacters.length; i++) {
+                  byteNumbers[i] = byteCharacters.charCodeAt(i);
+                }
+                const byteArray = new Uint8Array(byteNumbers);
+                const blob = new Blob([byteArray], { type: contentType });
+                const url = window.URL.createObjectURL(blob);
+                const link = document.createElement("a");
+                link.href = url;
+                link.download = filename;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                window.URL.revokeObjectURL(url);
+              } catch (err) {
+                console.error("[OrdersTable] Download error:", err);
+                setOrderErrors((prev) => ({
+                  ...prev,
+                  [orderId]: `Falha ao carregar o documento PDF: ${err.message}`,
+                }));
+                toast.error(
+                  `Falha ao carregar o documento PDF para o pedido ${orderNumber}.`,
+                  {
+                    description: `Erro: ${err.message}`,
+                    duration: 5000,
+                  },
+                );
+              }
             }
-            const byteArray = new Uint8Array(byteNumbers);
-            const blob = new Blob([byteArray], { type: contentType });
-            const url = window.URL.createObjectURL(blob);
-            const link = document.createElement("a");
-            link.href = url;
-            link.download = filename;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            window.URL.revokeObjectURL(url);
-          } catch (err) {
-            console.error("[OrdersTable] Download error:", err);
-            setOrderErrors((prev) => ({
-              ...prev,
-              [orderId]: `Falha ao carregar o documento PDF: ${err.message}`,
-            }));
-            toast.error(
-              `Falha ao carregar o documento PDF para o pedido ${orderNumber}.`,
-              {
-                description: `Erro: ${err.message}`,
-                duration: 5000,
-              },
-            );
           }
         }
       }
@@ -403,10 +401,13 @@ export default function OrdersTable({ isAuthenticated }) {
           <div className="me-md-2 mb-2 mb-md-0 flex-grow-1">
             <input
               type="text"
+              id="search"
+              name="search"
               className="form-control"
               placeholder="Pesquisar por Encomenda, Cliente, Data..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
+              autoComplete="off"
             />
           </div>
           <div className="d-flex align-items-center">
@@ -415,10 +416,12 @@ export default function OrdersTable({ isAuthenticated }) {
             </label>
             <select
               id="pageSize"
+              name="pageSize"
               className="form-select"
               style={{ width: "80px" }}
               value={pageSize}
               onChange={handlePageSizeChange}
+              autoComplete="off"
             >
               <option value="5">5</option>
               <option value="10">10</option>
@@ -625,13 +628,6 @@ export default function OrdersTable({ isAuthenticated }) {
                           className="btn p-0 text-decoration-underline invoice-link"
                           title="Download da Fatura"
                           onClick={() => {
-                            if (!isAuthenticated) {
-                              toast.error(
-                                "Login ou configurações do GESFaturação não estão concluídos. Por favor, verifique antes de gerar a fatura.",
-                                { duration: 4000 },
-                              );
-                              return;
-                            }
                             handleGenerateInvoice(
                               order.id,
                               order.orderNumber,

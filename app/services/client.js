@@ -66,6 +66,9 @@ export async function fetchClientDataFromOrder(order) {
   customerData.name =
     customerData.company !== "N/A" ? customerData.company : customerData.name;
 
+  customerData.taxId =
+    customerData.taxId === "N/A" ? "999999990" : customerData.taxId;
+
   const login = await prisma.GESlogin.findFirst({
     orderBy: { date_login: "desc" },
   });
@@ -85,8 +88,9 @@ export async function fetchClientDataFromOrder(order) {
   let apiUrl = login.dom_licenca;
   if (!apiUrl.endsWith("/")) apiUrl += "/";
 
-  if (customerData.taxId === "N/A" || customerData.name === "N/A") {
-    throw new Error("NIF ou nome do cliente ausente para a pesquisa");
+  // Removed the check for taxId === "N/A" since it's now replaced with "999999990"
+  if (customerData.name === "N/A") {
+    throw new Error("Nome do cliente ausente para a pesquisa");
   }
 
   const searchNames = [
@@ -152,7 +156,7 @@ export async function fetchClientDataFromOrder(order) {
   const formattedPhone = formatPhoneNumber(customerData.phone);
   const clientData = {
     name: customerData.name,
-    vatNumber: customerData.taxId !== "N/A" ? customerData.taxId : "",
+    vatNumber: customerData.taxId, // Use the updated taxId (either original or "999999990")
     country:
       customerData.shippingAddress?.country === "Portugal"
         ? "PT"

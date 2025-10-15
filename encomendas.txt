@@ -14,7 +14,5 @@ sho-jc1041 -> 1 + 1 (iva 0 com motivo de isenção) + Portes (1 €) (TOTAL = 50
 sho-jc1042 -> Teste iva 0 erro
 sho-jc1043 -> Teste Criação de um cliente novo sem VAT
 
+sho-jc4045 -> teste frontend com iva 0 (TOTAL 1021,06)
 
-!!!
-
-6- Erro caso que nenhuma serie e portes
