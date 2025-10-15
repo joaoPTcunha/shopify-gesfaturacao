@@ -1,5 +1,9 @@
-// components/ConfigForm.jsx
-import { Form, useActionData, useLoaderData } from "@remix-run/react";
+import {
+  Form,
+  useActionData,
+  useLoaderData,
+  useNavigate,
+} from "@remix-run/react";
 import { useState, useRef, useEffect } from "react";
 import { toast } from "sonner";
 
@@ -9,11 +13,12 @@ export default function ConfigForm() {
     services,
     currentSerieId,
     currentServiceId,
-    finalized = true, // Fallback to true
-    email_auto = true, // Fallback to true
+    finalized = true,
+    email_auto = true,
     error: loaderError,
   } = useLoaderData();
   const actionData = useActionData();
+  const navigate = useNavigate();
 
   const [servicesSearch, setServicesSearch] = useState(
     services?.find((service) => service.id === currentServiceId)?.description ||
@@ -69,7 +74,10 @@ export default function ConfigForm() {
     if (loaderError || actionData?.error) {
       toast.error(loaderError || actionData?.error, { duration: 5000 });
     }
-  }, [loaderError, actionData]);
+    if (actionData?.success) {
+      navigate("/ges-orders?configSaved=true");
+    }
+  }, [loaderError, actionData, navigate]);
 
   const handleServicesSelect = (service) => {
     setSelectedServiceId(service.id);
@@ -96,14 +104,14 @@ export default function ConfigForm() {
   };
 
   return (
-    <Form method="post" className="p-4" lang="pt-PT">
+    <Form method="post" className="p-2" lang="pt-PT">
       {(actionData?.error || loaderError) && (
         <div className="alert alert-danger">
           Ocorreu um erro. Por favor, verifique os dados e tente iniciar sessão
           novamente.
         </div>
       )}
-      <div className="mb-3" ref={seriesRef}>
+      <div className="mb-4" ref={seriesRef}>
         <label htmlFor="seriesSearch" className="form-label fw-bold">
           Selecionar Série
         </label>
@@ -159,7 +167,7 @@ export default function ConfigForm() {
         <input type="hidden" name="id_serie" value={selectedSerieId} required />
       </div>
 
-      <div className="mb-3" ref={servicesRef}>
+      <div className="mb-4" ref={servicesRef}>
         <label htmlFor="servicesSearch" className="form-label fw-bold">
           Selecionar Portes
         </label>
@@ -220,7 +228,7 @@ export default function ConfigForm() {
         />
       </div>
 
-      <div className="mb-3 form-check form-switch">
+      <div className="mb-4 form-check form-switch">
         <input
           type="checkbox"
           id="finalizeInvoice"
@@ -261,7 +269,7 @@ export default function ConfigForm() {
         </div>
       </div>
 
-      <button type="submit" className="btn btn-primary w-100">
+      <button type="submit" className="mb-4 btn btn-primary w-100">
         Guardar Configuração
       </button>
     </Form>

@@ -24,7 +24,7 @@ export default function LoginForm() {
         </div>
       )}
 
-      <div className="mb-3">
+      <div className="mb-4">
         <label htmlFor="dom_licenca" className="form-label fw-medium">
           <i className="bi bi-globe me-2"></i> Domínio da API
         </label>
@@ -35,10 +35,8 @@ export default function LoginForm() {
           name="dom_licenca"
           required
           aria-describedby="dom_licenca_help"
+          placeholder="Introduza o Link da API GESFaturação"
         />
-        <div id="dom_licenca_help" className="form-text text-muted">
-          Introduza o Link da API GESFaturacao
-        </div>
       </div>
 
       <div className="mb-3">

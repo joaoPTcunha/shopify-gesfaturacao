@@ -85,7 +85,7 @@ export default function Navbar({ isAuthenticated }) {
       >
         <div className="container-fluid">
           <img
-            src="/icons/logo.png"
+            src="/icons/logo.webp"
             alt="Logo GESFaturação"
             className="navbar-logo"
           />

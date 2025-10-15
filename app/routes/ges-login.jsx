@@ -113,7 +113,7 @@ export async function action({ request }) {
   }
 }
 
-export default function GesLoginPage() {
+export default function LoginPage() {
   const { isAuthenticated, error, logout } = useLoaderData();
   const revalidator = useRevalidator();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -155,12 +155,16 @@ export default function GesLoginPage() {
 
   return (
     <Layout>
-      <div className="container d-flex justify-content-center align-items-center min-vh-100">
-        <div className="col-md-6 col-lg-4">
-          <div className="card border-0 shadow-sm">
-            <div className="card-body text-center">
-              <h1 className="display-6 fw-bold mb-3">Login API GESFaturação</h1>
-              <LoginForm />
+      <div className="container mt-4">
+        <div className="row justify-content-center">
+          <div className="col-md-8 col-lg-6">
+            <div className="card border-0 shadow-sm">
+              <div className="card-body text-center p-3">
+                <h1 className="display-6 fw-bold mb-5">
+                  Login API GESFaturação
+                </h1>
+                <LoginForm />
+              </div>
             </div>
           </div>
         </div>

@@ -14,6 +14,13 @@ import { prisma } from "./prisma/client.js";
 import { useEffect } from "react";
 import { Toaster, toast } from "sonner";
 
+export function meta() {
+  return [
+    { title: "GESfaturação" },
+    { name: "description", content: "Sua plataforma de faturação e gestão" },
+  ];
+}
+
 export async function loader() {
   try {
     const login = await prisma.GESlogin.findFirst({
@@ -88,7 +95,6 @@ export function ErrorBoundary() {
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width,initial-scale=1" />
-        <link rel="preconnect" href="https://cdn.shopify.com/" />
         <link
           rel="stylesheet"
           href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"

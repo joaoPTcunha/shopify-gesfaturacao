@@ -1,10 +1,7 @@
 import { useLoaderData, useSearchParams, useFetcher } from "@remix-run/react";
-import { useState, useMemo, useEffect, Suspense, lazy } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { toast } from "sonner";
 import Layout from "./Layout";
-
-// Lazy-load non-critical components
-const OrderCard = lazy(() => import("./OrderCard"));
 
 export default function OrdersTable({ isAuthenticated }) {
   const { orders: initialOrders, error } = useLoaderData();
@@ -20,6 +17,15 @@ export default function OrdersTable({ isAuthenticated }) {
 
   useEffect(() => {
     setIsClient(true);
+
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get("configSaved") === "true") {
+      toast.success("Configurações guardadas com sucesso!", { duration: 3000 });
+      // Remove the query param
+      urlParams.delete("configSaved");
+      const newUrl = `${window.location.pathname}${urlParams.toString() ? "?" + urlParams.toString() : ""}`;
+      window.history.replaceState({}, "", newUrl);
+    }
   }, []);
 
   useEffect(() => {
@@ -40,25 +46,19 @@ export default function OrdersTable({ isAuthenticated }) {
         isFinalized,
       } = fetcher.data;
 
-      if (success && actionType === "sendEmail") {
-        if (isClient) {
-          toast.success(`Email enviado com sucesso!`, {
-            description: `Fatura: ${invoiceNumber}, Encomenda: ${orderNumber}`,
-            duration: 3000,
-          });
-        }
+      if (success && actionType === "sendEmail" && isClient) {
+        toast.success(`Email enviado com sucesso!`, {
+          description: `Fatura: ${invoiceNumber}, Encomenda: ${orderNumber}`,
+          duration: 3000,
+        });
       }
 
-      if (error && actionType === "sendEmail") {
-        if (isClient) {
-          toast.error(error, { duration: 3000 });
-        }
+      if (error && actionType === "sendEmail" && isClient) {
+        toast.error(error, { duration: 3000 });
       }
 
-      if (error && actionType === "generateInvoice") {
-        if (isClient) {
-          toast.error(error, { duration: 5000 });
-        }
+      if (error && actionType === "generateInvoice" && isClient) {
+        toast.error(error, { duration: 5000 });
       }
 
       if (success && actionType === "downloadInvoice") {
@@ -303,7 +303,7 @@ export default function OrdersTable({ isAuthenticated }) {
 
   const generatePagination = () => {
     const pages = [];
-    const maxVisiblePages = 5;
+    const maxVisiblePages = 3;
     let startPage = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
     let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
     if (endPage - startPage + 1 < maxVisiblePages) {
@@ -358,101 +358,102 @@ export default function OrdersTable({ isAuthenticated }) {
 
   return (
     <Layout isAuthenticated={isAuthenticated}>
-      <div className="main-content">
-        <div className="container py-4">
-          <h1 className="display-6 fw-bold mb-4">Encomendas Pagas</h1>
+      <div className="container py-3">
+        <h1 className="display-6 fw-bold mb-3">Encomendas Pagas</h1>
 
-          {error && <div className="alert alert-danger">{error}</div>}
+        {error && <div className="alert alert-danger">{error}</div>}
 
-          <div className="mb-4 d-flex flex-column flex-md-row align-items-md-center">
-            <div className="me-md-3 mb-3 mb-md-0 flex-grow-1">
-              <input
-                type="text"
-                className="form-control"
-                placeholder="Pesquisar por N.º Encomenda, Cliente, Data, Valor, Fatura, Cidade..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
-            </div>
-            <div className="d-flex align-items-center">
-              <label htmlFor="pageSize" className="me-2">
-                Encomendas por página:
-              </label>
-              <select
-                id="pageSize"
-                className="form-select"
-                style={{ width: "100px" }}
-                value={pageSize}
-                onChange={handlePageSizeChange}
-              >
-                <option value="5">5</option>
-                <option value="10">10</option>
-                <option value="20">20</option>
-                <option value="50">50</option>
-              </select>
-            </div>
+        <div className="mb-3 d-flex flex-column flex-md-row align-items-md-center">
+          <div className="me-md-2 mb-2 mb-md-0 flex-grow-1">
+            <input
+              type="text"
+              className="form-control"
+              placeholder="Pesquisar por Encomenda, Cliente, Data..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
           </div>
+          <div className="d-flex align-items-center">
+            <label htmlFor="pageSize" className="me-2">
+              NºEncomendas por página:
+            </label>
+            <select
+              id="pageSize"
+              className="form-select"
+              style={{ width: "80px" }}
+              value={pageSize}
+              onChange={handlePageSizeChange}
+            >
+              <option value="5">5</option>
+              <option value="10">10</option>
+              <option value="20">20</option>
+              <option value="50">50</option>
+            </select>
+          </div>
+        </div>
 
-          {/* Desktop Table Layout */}
-          <div className="table-responsive">
-            <table className="table table-hover">
-              <thead>
-                <tr>
-                  <th>N.º Encomenda</th>
-                  <th>Cliente</th>
-                  <th>Data</th>
-                  <th>Valor com IVA</th>
-                  <th>Estado</th>
-                  <th>N.º Fatura</th>
-                  <th>Opções</th>
-                </tr>
-              </thead>
-              <tbody>
-                {paginatedOrders.length > 0 ? (
-                  paginatedOrders.map((order) => (
-                    <tr key={order.id}>
-                      <td>{order.orderNumber}</td>
-                      <td>
-                        {order.customerName}{" "}
-                        {order.customerName === "N/A" && (
-                          <span className="text-muted">
-                            (Sem cliente registrado)
-                          </span>
-                        )}
-                      </td>
-                      <td>{formatDate(order.orderDate)}</td>
-                      <td>{order.totalValue.toFixed(2)} €</td>
-                      <td>{translateStatus(order.status)}</td>
-                      <td>
-                        {order.invoiceNumber &&
-                        order.invoiceNumber !== "N/A" ? (
-                          <button
-                            className="btn p-0 text-decoration-underline invoice-link"
-                            title="Download da Fatura"
-                            onClick={() =>
-                              handleGenerateInvoice(
-                                order.id,
-                                order.orderNumber,
-                                true,
-                              )
-                            }
-                            disabled={isProcessing}
-                            aria-label={`Download fatura ${order.invoiceNumber}`}
-                          >
-                            {order.invoiceNumber}
-                          </button>
-                        ) : (
-                          "-----"
-                        )}
-                      </td>
-                      <td>
+        {/* Desktop Table Layout */}
+        <div className="table-responsive">
+          <table className="table table-hover">
+            <thead>
+              <tr>
+                <th>N.º Encomenda</th>
+                <th>Cliente</th>
+                <th>Data</th>
+                <th>Valor</th>
+                <th>Estado</th>
+                <th>Fatura</th>
+                <th>Opções</th>
+              </tr>
+            </thead>
+            <tbody>
+              {paginatedOrders.length > 0 ? (
+                paginatedOrders.map((order) => (
+                  <tr key={order.id}>
+                    <td>{order.orderNumber}</td>
+                    <td>
+                      {order.customerName}{" "}
+                      {order.customerName === "N/A" && (
+                        <span className="text-muted">(Sem cliente)</span>
+                      )}
+                    </td>
+                    <td>{formatDate(order.orderDate)}</td>
+                    <td>{order.totalValue.toFixed(2)} €</td>
+                    <td>{translateStatus(order.status)}</td>
+                    <td>
+                      {order.invoiceNumber && order.invoiceNumber !== "N/A" ? (
                         <button
-                          className="btn btn-sm btn-outline-info me-2"
-                          title="Ver Detalhes no Shopify"
-                          onClick={() => handleShowDetails(order)}
+                          className="btn p-0 text-decoration-underline invoice-link"
+                          title="Download da Fatura"
+                          onClick={() =>
+                            handleGenerateInvoice(
+                              order.id,
+                              order.orderNumber,
+                              true,
+                            )
+                          }
                           disabled={isProcessing}
-                          aria-label={`Ver detalhes do pedido ${order.orderNumber} no Shopify`}
+                          aria-label={`Download fatura ${order.invoiceNumber}`}
                         >
+                          {order.invoiceNumber}
+                        </button>
+                      ) : (
+                        "-----"
+                      )}
+                    </td>
+                    <td>
+                      <button
+                        className="btn btn-sm btn-outline-info me-1"
+                        title="Ver Detalhes no Shopify"
+                        onClick={() => handleShowDetails(order)}
+                        disabled={isProcessing}
+                        aria-label={`Ver detalhes do pedido ${order.orderNumber}`}
+                      >
+                        <picture>
+                          <source
+                            srcSet="/icons/magnifying-glass.webp"
+                            type="image/webp"
+                          />
                           <img
                             src="/icons/magnifying-glass.png"
                             alt="Ver Detalhes no Shopify"
@@ -462,22 +463,27 @@ export default function OrdersTable({ isAuthenticated }) {
                               filter: isProcessing ? "grayscale(100%)" : "none",
                             }}
                           />
-                        </button>
-                        {order.invoiceNumber &&
-                        order.invoiceNumber !== "N/A" ? (
-                          <button
-                            className="btn btn-sm btn-outline-secondary me-2"
-                            title="Enviar Email"
-                            onClick={() =>
-                              handleSendEmail(
-                                order.id,
-                                order.orderNumber,
-                                order.customerEmail,
-                              )
-                            }
-                            disabled={isProcessing}
-                            aria-label={`Enviar email com fatura para o pedido ${order.orderNumber}`}
-                          >
+                        </picture>
+                      </button>
+                      {order.invoiceNumber && order.invoiceNumber !== "N/A" ? (
+                        <button
+                          className="btn btn-sm btn-outline-secondary me-1"
+                          title="Enviar Email"
+                          onClick={() =>
+                            handleSendEmail(
+                              order.id,
+                              order.orderNumber,
+                              order.customerEmail,
+                            )
+                          }
+                          disabled={isProcessing}
+                          aria-label={`Enviar fatura do pedido ${order.orderNumber}`}
+                        >
+                          <picture>
+                            <source
+                              srcSet="/icons/mail.webp"
+                              type="image/webp"
+                            />
                             <img
                               src="/icons/mail.png"
                               alt="Enviar Email"
@@ -489,17 +495,23 @@ export default function OrdersTable({ isAuthenticated }) {
                                   : "none",
                               }}
                             />
-                          </button>
-                        ) : (
-                          <button
-                            className="btn btn-sm btn-outline-primary"
-                            title="Gerar Fatura"
-                            onClick={() =>
-                              handleGenerateInvoice(order.id, order.orderNumber)
-                            }
-                            disabled={isProcessing}
-                            aria-label={`Gerar fatura para o pedido ${order.orderNumber}`}
-                          >
+                          </picture>
+                        </button>
+                      ) : (
+                        <button
+                          className="btn btn-sm btn-outline-primary"
+                          title="Gerar Fatura"
+                          onClick={() =>
+                            handleGenerateInvoice(order.id, order.orderNumber)
+                          }
+                          disabled={isProcessing}
+                          aria-label={`Gerar fatura para o pedido ${order.orderNumber}`}
+                        >
+                          <picture>
+                            <source
+                              srcSet="/icons/invoice.webp"
+                              type="image/webp"
+                            />
                             <img
                               src="/icons/invoice.png"
                               alt="Gerar Fatura"
@@ -511,62 +523,189 @@ export default function OrdersTable({ isAuthenticated }) {
                                   : "none",
                               }}
                             />
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan={7} className="text-center">
-                      Nenhuma ordem paga encontrada.
+                          </picture>
+                        </button>
+                      )}
                     </td>
                   </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Mobile Card Layout */}
-          <Suspense
-            fallback={<div className="text-center p-4">Carregando...</div>}
-          >
-            <div className="orders-container">
-              {paginatedOrders.length > 0 ? (
-                paginatedOrders.map((order) => (
-                  <OrderCard
-                    key={order.id}
-                    order={order}
-                    isProcessing={isProcessing}
-                    handleShowDetails={handleShowDetails}
-                    handleSendEmail={handleSendEmail}
-                    handleGenerateInvoice={handleGenerateInvoice}
-                    translateStatus={translateStatus}
-                    formatDate={formatDate}
-                  />
                 ))
               ) : (
-                <div className="text-center p-4">
-                  Nenhuma ordem paga encontrada.
-                </div>
+                <tr>
+                  <td colSpan={7} className="text-center">
+                    Nenhuma encomenda encontrada.
+                  </td>
+                </tr>
               )}
-            </div>
-          </Suspense>
+            </tbody>
+          </table>
+        </div>
 
-          {totalPages > 1 && (
-            <nav aria-label="Paginação de pedidos">
-              <ul className="pagination justify-content-center mt-4">
-                {generatePagination()}
-              </ul>
-            </nav>
+        {/* Mobile Card Layout */}
+        <div className="orders-container">
+          {paginatedOrders.length > 0 ? (
+            paginatedOrders.map((order) => (
+              <div key={order.id} className="order-card card mb-2">
+                <div className="card-body">
+                  <div className="order-row">
+                    <span className="order-label">N.º Encomenda:</span>
+                    <span>{order.orderNumber}</span>
+                  </div>
+                  <div className="order-row">
+                    <span className="order-label">Cliente:</span>
+                    <span>
+                      {order.customerName}{" "}
+                      {order.customerName === "N/A" && (
+                        <span className="text-muted">(Sem cliente)</span>
+                      )}
+                    </span>
+                  </div>
+                  <div className="order-row">
+                    <span className="order-label">Data:</span>
+                    <span>{formatDate(order.orderDate)}</span>
+                  </div>
+                  <div className="order-row">
+                    <span className="order-label">Valor:</span>
+                    <span>{order.totalValue.toFixed(2)} €</span>
+                  </div>
+                  <div className="order-row">
+                    <span className="order-label">Estado:</span>
+                    <span>{translateStatus(order.status)}</span>
+                  </div>
+                  <div className="order-row">
+                    <span className="order-label">Fatura:</span>
+                    <span>
+                      {order.invoiceNumber && order.invoiceNumber !== "N/A" ? (
+                        <button
+                          className="btn p-0 text-decoration-underline invoice-link"
+                          title="Download da Fatura"
+                          onClick={() =>
+                            handleGenerateInvoice(
+                              order.id,
+                              order.orderNumber,
+                              true,
+                            )
+                          }
+                          disabled={isProcessing}
+                          aria-label={`Download fatura ${order.invoiceNumber}`}
+                        >
+                          {order.invoiceNumber}
+                        </button>
+                      ) : (
+                        "-----"
+                      )}
+                    </span>
+                  </div>
+                  <div className="order-row order-actions">
+                    <span className="order-label">Opções:</span>
+                    <div className="d-flex gap-2">
+                      <button
+                        className="btn btn-sm btn-outline-info"
+                        title="Ver Detalhes no Shopify"
+                        onClick={() => handleShowDetails(order)}
+                        disabled={isProcessing}
+                        aria-label={`Ver detalhes do pedido ${order.orderNumber}`}
+                      >
+                        <picture>
+                          <source
+                            srcSet="/icons/magnifying-glass.webp"
+                            type="image/webp"
+                          />
+                          <img
+                            src="/icons/magnifying-glass.png"
+                            alt="Ver Detalhes no Shopify"
+                            width="22"
+                            height="22"
+                            style={{
+                              filter: isProcessing ? "grayscale(100%)" : "none",
+                            }}
+                          />
+                        </picture>
+                      </button>
+                      {order.invoiceNumber && order.invoiceNumber !== "N/A" ? (
+                        <button
+                          className="btn btn-sm btn-outline-secondary"
+                          title="Enviar Email"
+                          onClick={() =>
+                            handleSendEmail(
+                              order.id,
+                              order.orderNumber,
+                              order.customerEmail,
+                            )
+                          }
+                          disabled={isProcessing}
+                          aria-label={`Enviar fatura do pedido ${order.orderNumber}`}
+                        >
+                          <picture>
+                            <source
+                              srcSet="/icons/mail.webp"
+                              type="image/webp"
+                            />
+                            <img
+                              src="/icons/mail.png"
+                              alt="Enviar Email"
+                              width="22"
+                              height="22"
+                              style={{
+                                filter: isProcessing
+                                  ? "grayscale(100%)"
+                                  : "none",
+                              }}
+                            />
+                          </picture>
+                        </button>
+                      ) : (
+                        <button
+                          className="btn btn-sm btn-outline-primary"
+                          title="Gerar Fatura"
+                          onClick={() =>
+                            handleGenerateInvoice(order.id, order.orderNumber)
+                          }
+                          disabled={isProcessing}
+                          aria-label={`Gerar fatura para o pedido ${order.orderNumber}`}
+                        >
+                          <picture>
+                            <source
+                              srcSet="/icons/invoice.webp"
+                              type="image/webp"
+                            />
+                            <img
+                              src="/icons/invoice.png"
+                              alt="Gerar Fatura"
+                              width="22"
+                              height="22"
+                              style={{
+                                filter: isProcessing
+                                  ? "grayscale(100%)"
+                                  : "none",
+                              }}
+                            />
+                          </picture>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))
+          ) : (
+            <div className="text-center p-3">Nenhuma encomenda encontrada.</div>
           )}
         </div>
+
+        {totalPages > 1 && (
+          <nav aria-label="Paginação de pedidos">
+            <ul className="pagination justify-content-center mt-3">
+              {generatePagination()}
+            </ul>
+          </nav>
+        )}
       </div>
 
-      <style jsx>{`
-        .main-content {
-          transition: margin-top 0.3s ease;
+      <style>{`
+        .container {
           min-height: 100vh;
+          transform: translateY(0);
+          transition: transform 0.3s ease;
         }
         .invoice-link:disabled {
           color: #6c757d;
@@ -576,12 +715,38 @@ export default function OrdersTable({ isAuthenticated }) {
         .btn-outline-info:disabled,
         .btn-outline-secondary:disabled,
         .btn-outline-primary:disabled {
-          opacity: 0.6;
+          opacity: 0.65;
           cursor: not-allowed;
         }
         .table th,
         .table td {
           vertical-align: middle;
+          padding: 0.5rem;
+        }
+        .order-row {
+          display: flex;
+          justify-content: space-between;
+          padding: 0.4rem 0;
+          font-size: 0.9rem;
+        }
+        .order-label {
+          font-weight: 500;
+          color: #495057;
+          flex: 0 0 38%;
+        }
+        .order-card {
+          border: 1px solid #dee2e6;
+          border-radius: 0.25rem;
+          margin-bottom: 0.75rem;
+        }
+        .order-row {
+          border-bottom: 1px solid #e9ecef;
+        }
+        .order-row:last-child {
+          border-bottom: none;
+        }
+        .order-actions {
+          align-items: center;
         }
         @media (min-width: 768px) {
           .orders-container {
@@ -597,15 +762,24 @@ export default function OrdersTable({ isAuthenticated }) {
           }
           .orders-container {
             display: block;
+            min-height: calc(100vh - 200px);
           }
           .btn-sm {
-            padding: 0.3rem 0.6rem;
+            padding: 0.4rem 0.7rem;
+            min-width: 44px;
+            min-height: 44px;
           }
           .form-control,
           .form-select,
           .page-link {
-            font-size: 0.9rem;
-            padding: 0.4rem 0.6rem;
+            font-size: 0.85rem;
+            padding: 0.35rem 0.5rem;
+          }
+          .pagination {
+            font-size: 0.85rem;
+          }
+          .page-link {
+            padding: 0.3rem 0.6rem;
           }
         }
       `}</style>

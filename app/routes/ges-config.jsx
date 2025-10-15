@@ -150,23 +150,25 @@ export async function action({ request }) {
       data: { id_serie, id_product_shipping, finalized, email_auto },
     });
 
-    return redirect("/ges-orders");
+    return json({ success: true });
   } catch (error) {
     return json({ error: error.message }, { status: 500 });
   }
 }
 
-export default function GesConfigPage() {
+export default function ConfigPage() {
   return (
     <Layout>
-      <div className="container d-flex justify-content-center align-items-center min-vh-100">
-        <div className="col-md-8 col-lg-6">
-          <div className="card border-0 shadow-sm">
-            <div className="card-body text-center">
-              <h1 className="display-6 fw-bold mb-3">
-                Configuração GESFaturação
-              </h1>
-              <ConfigForm />
+      <div className="container mt-4">
+        <div className="row justify-content-center">
+          <div className="col-md-8 col-lg-6">
+            <div className="card border-0 shadow-sm">
+              <div className="card-body text-center p-3">
+                <h1 className="display-6 fw-bold mb-5">
+                  Configuração GESFaturação
+                </h1>
+                <ConfigForm />
+              </div>
             </div>
           </div>
         </div>

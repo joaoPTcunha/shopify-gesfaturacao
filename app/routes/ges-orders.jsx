@@ -7,15 +7,19 @@ import { generateInvoice } from "../services/receipt-invoice";
 import { downloadInvoicePDF } from "../services/download";
 import { sendEmail } from "../services/sendEmail";
 
-export async function loader() {
+export async function loader({ request }) {
   try {
+    const url = new URL(request.url);
+    const limit = Math.min(parseInt(url.searchParams.get("limit")) || 50, 250); // Default 50, max 250
+    const offset = parseInt(url.searchParams.get("offset")) || 0;
+
     const query = `
-      query {
+      query($first: Int!, $query: String!) {
         orders(
-          first: 250
+          first: $first
           sortKey: CREATED_AT
           reverse: true
-          query: "financial_status:PAID"
+          query: $query
         ) {
           edges {
             node {
@@ -187,6 +191,11 @@ export async function loader() {
       }
       `;
 
+    const variables = {
+      first: limit,
+      query: "financial_status:PAID",
+    };
+
     const response = await fetch(
       `https://${process.env.SHOPIFY_STORE_DOMAIN}/admin/api/${process.env.API_VERSION}/graphql.json`,
       {
@@ -195,7 +204,7 @@ export async function loader() {
           "Content-Type": "application/json",
           "X-Shopify-Access-Token": process.env.SHOPIFY_API_TOKEN,
         },
-        body: JSON.stringify({ query }),
+        body: JSON.stringify({ query, variables }),
       },
     );
 

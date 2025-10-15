@@ -1,6 +1,3 @@
-// OrderCard.jsx
-import React from "react";
-
 export default function OrderCard({
   order,
   isProcessing,
@@ -69,7 +66,7 @@ export default function OrderCard({
               aria-label={`Ver detalhes do pedido ${order.orderNumber} no Shopify`}
             >
               <img
-                src="/icons/magnifying-glass.png"
+                src="/icons/magnifying-glass.webp"
                 alt="Ver Detalhes no Shopify"
                 width="22"
                 height="22"
@@ -91,7 +88,7 @@ export default function OrderCard({
                 aria-label={`Enviar email com fatura para o pedido ${order.orderNumber}`}
               >
                 <img
-                  src="/icons/mail.png"
+                  src="/icons/mail.webp"
                   alt="Enviar Email"
                   width="22"
                   height="22"
@@ -109,7 +106,7 @@ export default function OrderCard({
                 aria-label={`Gerar fatura para o pedido ${order.orderNumber}`}
               >
                 <img
-                  src="/icons/invoice.png"
+                  src="/icons/invoice.webp"
                   alt="Gerar Fatura"
                   width="22"
                   height="22"
@@ -120,7 +117,7 @@ export default function OrderCard({
           </div>
         </div>
       </div>
-      <style jsx>{`
+      <style>{`
         .order-card {
           border: 1px solid #dee2e6;
           border-radius: 0.25rem;
