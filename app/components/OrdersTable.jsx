@@ -502,6 +502,7 @@ export default function OrdersTable({ isAuthenticated }) {
                             alt="Ver Detalhes no Shopify"
                             width="22"
                             height="22"
+                            loading="lazy"
                             style={{
                               filter: isProcessing ? "grayscale(100%)" : "none",
                             }}
@@ -532,6 +533,7 @@ export default function OrdersTable({ isAuthenticated }) {
                               alt="Enviar Email"
                               width="22"
                               height="22"
+                              loading="lazy"
                               style={{
                                 filter: isProcessing
                                   ? "grayscale(100%)"

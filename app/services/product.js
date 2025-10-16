@@ -154,7 +154,7 @@ export async function fetchProductDataFromOrder(order, lineItem) {
   ) {
     if (!isTaxable) {
       throw new Error(
-        `Não é possível gerar fatura: O produto ${lineItem.title} deve ser criado no GESfaturacao com um motivo de isenção de IVA válido.`,
+        `Não é possível gerar fatura: O produto (${lineItem.title}) deve ser criado no GESfaturacao com um motivo de isenção de IVA válido.`,
       );
     }
 
@@ -167,7 +167,6 @@ export async function fetchProductDataFromOrder(order, lineItem) {
           Accept: "application/json",
           "Content-Type": "application/json",
         },
-        signal: AbortSignal.timeout(10000),
       });
       if (categoriesResponse.ok) {
         const categoriesData = await categoriesResponse.json();
@@ -192,7 +191,7 @@ export async function fetchProductDataFromOrder(order, lineItem) {
       currency: order.currency || "EUR",
       description: lineItem.title,
       category: categoryId,
-      exemption_reason: isTaxable ? "" : "M20",
+      exemption_reason: "",
       observations: "",
       image: "",
     };
@@ -257,7 +256,7 @@ export async function fetchProductDataFromOrder(order, lineItem) {
             );
             if (!exemptionId) {
               throw new Error(
-                `Não é possível gerar fatura: O produto ${lineItem.title} deve ter um motivo de isenção de IVA válido no GESfaturacao.`,
+                `Não é possível gerar fatura: O produto (${lineItem.title}) deve ter um motivo de isenção de IVA válido no GESfaturacao.`,
               );
             }
           }
@@ -304,17 +303,6 @@ export async function fetchProductDataFromOrder(order, lineItem) {
             10,
           )
         : null;
-
-    if (!isTaxable && (!exemptionId || exemptionId === 0)) {
-      exemptionId = await getExemptionId(
-        newProduct.data?.exemption_reason || "M20",
-      );
-      if (!exemptionId) {
-        throw new Error(
-          `Não é possível gerar fatura: O produto ${lineItem.title} deve ter um motivo de isenção de IVA válido no GESfaturacao.`,
-        );
-      }
-    }
 
     return {
       productId: productIdGes,

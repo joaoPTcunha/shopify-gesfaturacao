@@ -9,7 +9,6 @@ export async function fetchProductByCode(productCode, apiUrl, token) {
           Accept: "application/json",
           "Content-Type": "application/json",
         },
-        signal: AbortSignal.timeout(10000),
       },
     );
     const responseText = await response.text();

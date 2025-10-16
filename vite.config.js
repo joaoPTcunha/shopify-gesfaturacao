@@ -43,7 +43,6 @@ export default defineConfig({
     port: Number(process.env.PORT || 3000),
     hmr: hmrConfig,
     fs: {
-      // See https://vitejs.dev/config/server-options.html#server-fs-allow for more information
       allow: ["app", "node_modules"],
     },
   },
@@ -63,6 +62,22 @@ export default defineConfig({
   ],
   build: {
     assetsInlineLimit: 0,
+    minify: "terser",
+    terserOptions: {
+      compress: {
+        drop_console: true,
+        drop_debugger: true,
+      },
+    },
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vendor: ["react", "react-dom"],
+          shopify: ["@shopify/app-bridge-react", "@shopify/polaris"],
+          ui: ["bootstrap", "sonner"],
+        },
+      },
+    },
   },
   optimizeDeps: {
     include: ["@shopify/app-bridge-react", "@shopify/polaris"],

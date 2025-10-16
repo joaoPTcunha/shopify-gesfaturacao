@@ -16,8 +16,11 @@ import { Toaster, toast } from "sonner";
 
 export function meta() {
   return [
-    { title: "GESfaturação" },
-    { name: "description", content: "Sua plataforma de faturação e gestão" },
+    { title: "GESFaturação" },
+    {
+      name: "description",
+      content: "Converta as Encomendas em Faturas com um só clique",
+    },
   ];
 }
 
@@ -77,14 +80,6 @@ export function ErrorBoundary() {
   const error = useRouteError();
 
   useEffect(() => {
-    console.error("[Root ErrorBoundary] Error occurred:", {
-      message: error?.message,
-      status: error?.status,
-      statusText: error?.statusText,
-      stack: error?.stack,
-      data: error?.data,
-    });
-
     if (typeof window !== "undefined" && error?.message) {
       toast.error(`Erro: ${error.message}`);
     }

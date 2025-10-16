@@ -1,5 +1,5 @@
 import { json, redirect } from "@remix-run/node";
-import { authenticate } from "../../../shopify.server"; // Import from root
+import { authenticate } from "../../../shopify.server";
 
 export const loader = async ({ request }) => {
   try {
@@ -8,8 +8,7 @@ export const loader = async ({ request }) => {
       await authenticate.admin(request);
 
     if (authRedirect) {
-      console.log("Redirecting to:", authRedirect.headers.get("Location"));
-      return authRedirect; // Follow Shopify's redirect for OAuth flow
+      return authRedirect;
     }
 
     return json({ authenticated: false }, { status: 401 });
@@ -29,7 +28,6 @@ export const action = async ({ request }) => {
       await authenticate.admin(request);
 
     if (authRedirect) {
-      console.log("Redirecting to:", authRedirect.headers.get("Location"));
       return authRedirect;
     }
 

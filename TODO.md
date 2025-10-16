@@ -1,7 +1,0 @@
-- [ ] Import prisma client
-- [ ] Add token existence check
-- [ ] Add expiration check based on date_expire
-- [ ] Delete row if invalid/expired
-- [ ] Log "Token inválido. Sessão encerrada."
-- [ ] Redirect to /ges-login
-- [ ] Include error handling and console logs
