@@ -66,8 +66,8 @@ export async function generateInvoice(order) {
     const taxesData = await taxesResponse.json();
     availableTaxes = taxesData.data || [];
   } catch (error) {
-    console.warn(
-      `[generateInvoice] Falha ao obter taxas: ${error.message}. Usando taxId padrão: 1`,
+    throw new Error(
+      `Falha ao obter taxas: ${error.message}. Usando taxId padrão: 1`,
     );
   }
 
@@ -76,7 +76,6 @@ export async function generateInvoice(order) {
   const discountData = Discounts(order);
   const discountOnly = discountData.discountOnly;
   const subtotalProductsWithVat = discountData.subtotalProductsWithVat;
-  const discountAmountExclTax = discountData.discountAmount;
   const invoiceLevelDiscount = discountData.invoiceLevelDiscount;
   const isProductSpecificDiscount = discountData.isProductSpecificDiscount;
 
@@ -122,10 +121,6 @@ export async function generateInvoice(order) {
           ? parseFloat(item.unitPrice) / (1 + taxRate / 100)
           : parseFloat(item.unitPrice);
     const roundedUnitPrice = parseFloat(originalPriceExclTax.toFixed(3));
-    const vatInclusivePrice = item.originalUnitPriceSet?.shopMoney?.amount
-      ? parseFloat(item.originalUnitPriceSet.shopMoney.amount)
-      : originalPriceExclTax * (1 + taxRate / 100);
-
     let productId;
     try {
       if (typeof item.productId !== "string" || !item.productId.includes("/")) {
@@ -140,9 +135,6 @@ export async function generateInvoice(order) {
         );
       }
     } catch (err) {
-      console.warn(
-        `[generateInvoice] ${err.message}. Usando índice do item como padrão para pesquisa de desconto.`,
-      );
       productId = `item-${index}`;
     }
 
@@ -316,28 +308,14 @@ export async function generateInvoice(order) {
   const calculatedTotalWithVat =
     (totalBaseExclTax + totalBaseVat) * (1 - adjustedGlobalPercent / 100.0);
   if (Math.abs(calculatedTotalWithVat - expectedTotalWithVat) > 0.01) {
-    console.warn(
-      `[generateInvoice] Diferença no total: calculado=${calculatedTotalWithVat}, esperado=${expectedTotalWithVat}`,
-    );
     if (totalBaseExclTax + totalBaseVat > 0) {
       adjustedGlobalPercent =
         100 * (1 - expectedTotalWithVat / (totalBaseExclTax + totalBaseVat));
       adjustedGlobalPercent = parseFloat(adjustedGlobalPercent.toFixed(4));
-      console.log(
-        `[generateInvoice] Desconto global ajustado para ${adjustedGlobalPercent}% para corresponder ao total esperado`,
-      );
     }
   }
 
   let observations = order.note === "N/A" ? "" : order.note;
-  /*   if (adjustedGlobalPercent > 0) {
-    const discountAmountWithVat =
-      (adjustedGlobalPercent / 100) * (totalBaseExclTax + totalBaseVat);
-    observations += `\nDesconto geral aplicado: ${discountAmountWithVat.toFixed(2)} ${order.currency || "EUR"} (Desconto Global: ${adjustedGlobalPercent}%)`;
-  }
-  if (isFreeShipping) {
-    observations += `\nEnvio grátis aplicado: 100% de desconto nos custos de envio`;
-  } */
 
   const date = new Date().toISOString().split("T")[0];
   const expirationDate = new Date();
@@ -466,9 +444,6 @@ export async function generateInvoice(order) {
       size: contentLength,
     };
   } catch (err) {
-    console.warn(
-      `[generateInvoice] Erro ao descarregar PDF para a fatura ${savedInvoiceNumber}: ${err.message}`,
-    );
     invoiceFile = null;
   }
 
@@ -485,8 +460,8 @@ export async function generateInvoice(order) {
       });
       emailActuallySent = true;
     } catch (err) {
-      console.error(
-        `[generateInvoice] Falha ao enviar email para a fatura ${savedInvoiceNumber}: ${err.message}`,
+      throw new Error(
+        `Falha ao enviar email para a fatura ${savedInvoiceNumber}: ${err.message}`,
       );
     }
   }

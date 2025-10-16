@@ -16,7 +16,7 @@ export default function OrdersTable({ isAuthenticated }) {
   );
   const [orderErrors, setOrderErrors] = useState({});
 
-  // Function to check if an error is session-related
+  /*   // Function to check if an error is session-related
   const isSessionError = (errorMessage) => {
     const sessionErrors = [
       "Nenhuma sessão GES ativa encontrada",
@@ -24,7 +24,7 @@ export default function OrdersTable({ isAuthenticated }) {
       "Login ou configurações do GESFaturação em falta",
     ];
     return sessionErrors.some((err) => errorMessage.includes(err));
-  };
+  }; */
 
   useEffect(() => {
     setIsClient(true);
@@ -54,21 +54,20 @@ export default function OrdersTable({ isAuthenticated }) {
       }
 
       if (error && actionType === "sendEmail" && isClient) {
-        toast.error(error, { duration: 3000 });
+        toast.error(error, {
+          description: `Encomenda: ${orderNumber}`,
+          duration: 3000,
+        });
       }
 
       if (error && actionType === "generateInvoice" && isClient) {
-        toast.error(error, { duration: 5000 });
+        toast.error(error, {
+          description: `Encomenda: ${orderNumber}`,
+          duration: 5000,
+        });
       }
 
       if (error && actionType === "downloadInvoice" && isClient) {
-        // Only store non-session-related errors in orderErrors
-        if (!isSessionError(error)) {
-          setOrderErrors((prev) => ({
-            ...prev,
-            [orderId]: error,
-          }));
-        }
         toast.error(error, {
           description: `Encomenda: ${orderNumber}`,
           duration: 5000,
@@ -616,24 +615,19 @@ export default function OrdersTable({ isAuthenticated }) {
                     <span>{translateStatus(order.status)}</span>
                   </div>
                   <div className="order-row">
-                    <span className="order-label">Fatura:</span>
+                    <span className="order-label">N.º Fatura:</span>
                     <span>
-                      {orderErrors[order.id] ? (
-                        <span className="text-danger">
-                          Erro: {orderErrors[order.id]}
-                        </span>
-                      ) : order.invoiceNumber &&
-                        order.invoiceNumber !== "N/A" ? (
+                      {order.invoiceNumber && order.invoiceNumber !== "N/A" ? (
                         <button
                           className="btn p-0 text-decoration-underline invoice-link"
                           title="Download da Fatura"
-                          onClick={() => {
+                          onClick={() =>
                             handleGenerateInvoice(
                               order.id,
                               order.orderNumber,
                               true,
-                            );
-                          }}
+                            )
+                          }
                           disabled={isProcessing}
                           aria-label={`Download fatura ${order.invoiceNumber}`}
                         >

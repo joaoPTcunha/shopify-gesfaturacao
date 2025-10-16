@@ -165,8 +165,8 @@ export default function ConfigForm() {
                 </button>
               ))
             ) : (
-              <span className="dropdown-item text-muted">
-                Nenhuma série encontrada
+              <span className="dropdown-item text-danger">
+                Sessão expirada. Por favor, faça login novamente.
               </span>
             )}
           </div>
@@ -221,8 +221,8 @@ export default function ConfigForm() {
                 </button>
               ))
             ) : (
-              <span className="dropdown-item text-muted">
-                Nenhum porte encontrado
+              <span className="dropdown-item text-danger">
+                Sessão expirada. Por favor, faça login novamente.
               </span>
             )}
           </div>

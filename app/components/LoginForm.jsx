@@ -38,6 +38,7 @@ export default function LoginForm() {
           placeholder="Introduza o Link da API GESFaturação"
           autoComplete="url"
         />
+        <i>https://development.gesfaturacao.pt/api/v1.0.4</i>
       </div>
 
       <div className="mb-3">

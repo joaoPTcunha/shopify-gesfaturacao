@@ -1,4 +1,3 @@
-// money.js
 export function getMonetaryValue(value, fieldName = "unknown") {
   if (value === null || value === undefined) {
     console.warn(

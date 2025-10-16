@@ -14,7 +14,6 @@ export async function loader({ request }) {
   try {
     const url = new URL(request.url);
     const limit = Math.min(parseInt(url.searchParams.get("limit")) || 50, 250);
-    const offset = parseInt(url.searchParams.get("offset")) || 0;
 
     const query = `
       query($first: Int!, $query: String!) {
@@ -378,10 +377,6 @@ export async function action({ request }) {
       clientResult = await fetchClientDataFromOrder(order);
 
       if (!clientResult.clientId || !clientResult.status) {
-        console.error(
-          `[ges-orders/action] Resultado inválido do cliente para o pedido ${order.orderNumber}: ID ou estado ausente`,
-          JSON.stringify(clientResult, null, 2),
-        );
         throw new Error(
           "Resposta inválida de fetchClientDataFromOrder: ID ou estado do cliente ausente",
         );
@@ -442,7 +437,7 @@ export async function action({ request }) {
       const expireDate = login.date_expire ? new Date(login.date_expire) : null;
       if (!expireDate || expireDate < new Date()) {
         await prisma.gESlogin.delete({ where: { id: login.id } });
-        throw new Error("Sessão GES expirada");
+        throw new Error("Sua sessão expirou. Por favor, faça login novamente.");
       }
 
       let apiUrl = login.dom_licenca;
@@ -501,7 +496,7 @@ export async function action({ request }) {
       const expireDate = login.date_expire ? new Date(login.date_expire) : null;
       if (!expireDate || expireDate < new Date()) {
         await prisma.gESlogin.delete({ where: { id: login.id } });
-        throw new Error("Sessão GES expirada");
+        throw new Error("Sua sessão expirou. Por favor, faça login novamente.");
       }
 
       let apiUrl = login.dom_licenca;

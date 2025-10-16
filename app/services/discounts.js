@@ -2,10 +2,6 @@ import { getMonetaryValue } from "../utils/getMonetaryValue";
 import { clampDiscount } from "../utils/clampDiscount";
 
 export function Discounts(order) {
-  console.log(
-    `[getOrderDiscounts] Calculating discounts for order ${order.name || "undefined"}`,
-  );
-
   const discountOnly = {};
   let subtotalProductsBeforeDiscounts = 0.0;
   let subtotalProductsWithVat = 0.0;
@@ -14,12 +10,13 @@ export function Discounts(order) {
   let isProductSpecificDiscount = false;
   let generalDiscountPercentage = 0.0;
 
-  // Map order line items to order details
   const orderDetails = order.lineItems.map((item) => {
     const productId =
       item.productId?.split("/").pop() || item.variantId?.split("/").pop();
     if (!productId) {
-      throw new Error(`Missing productId or variantId for item: ${item.title}`);
+      throw new Error(
+        `Falta productId ou variantId para o item: ${item.title}`,
+      );
     }
     const isTaxable = item.taxable ?? true;
     const taxRate = isTaxable
@@ -54,19 +51,14 @@ export function Discounts(order) {
     };
   });
 
-  // Calculate subtotal for products
   for (const detail of orderDetails) {
     const { originalPrice, productQuantity, taxRate } = detail;
     const lineSubtotalExcl = originalPrice * productQuantity;
     subtotalProductsBeforeDiscounts += lineSubtotalExcl;
     const lineVat = lineSubtotalExcl * (taxRate / 100.0);
     subtotalProductsWithVat += lineSubtotalExcl + lineVat;
-    console.log(
-      `[getOrderDiscounts] Product ID: ${detail.productId} | Original Price (excl. VAT): ${originalPrice.toFixed(3)} | Quantity: ${detail.productQuantity} | Tax Rate: ${taxRate}% | Line Subtotal (excl. VAT): ${lineSubtotalExcl.toFixed(3)} | Line VAT: ${lineVat.toFixed(3)} | Line Discount (excl. VAT): ${detail.discount.toFixed(3)}`,
-    );
   }
 
-  // Add shipping to subtotal if present
   let shippingPrice = getMonetaryValue(
     order.shippingLine?.price,
     "shippingLine",
@@ -87,7 +79,6 @@ export function Discounts(order) {
   subtotalProductsBeforeDiscounts += shippingExclTax;
   subtotalProductsWithVat += shippingPrice;
 
-  // Identify discount types
   const hasGeneralDiscount = order.discountApplications?.some(
     (app) =>
       app.node.targetType === "LINE_ITEM" &&
@@ -106,28 +97,11 @@ export function Discounts(order) {
       app.node.targetSelection === "ALL",
   );
 
-  if (order.discountApplications?.length > 0) {
-    console.log("[DEBUG] Tipos de descontos encontrados:");
-    for (const app of order.discountApplications) {
-      const node = app.node;
-      console.log({
-        targetType: node.targetType,
-        targetSelection: node.targetSelection,
-        allocationMethod: node.allocationMethod,
-        valueType: node.value.__typename,
-        percentage: node.value.percentage || null,
-        amount: node.value.amount || null,
-      });
-    }
-  }
-
-  // Calculate total discounts from Shopify
   const totalDiscountWithVat = getMonetaryValue(
     order.totalDiscountsSet?.shopMoney?.amount,
     "totalDiscountsSet",
   );
 
-  // Determine discount type
   let totalItemDiscountsExclTax = orderDetails.reduce(
     (sum, detail) => sum + detail.discount,
     0,
@@ -142,9 +116,7 @@ export function Discounts(order) {
     isProductSpecificDiscount = true;
   }
 
-  // Calculate discounts
   if (isProductSpecificDiscount) {
-    // Product-specific discounts
     for (const detail of orderDetails) {
       const {
         productId,
@@ -159,15 +131,11 @@ export function Discounts(order) {
         lineTotalExclTax > 0 ? (discount / lineTotalExclTax) * 100 : 0;
       discountOnly[productId] = clampDiscount(
         discountPercent,
-        `product-specific discount for ${productId}`,
+        `desconto específico para o produto ${productId}`,
       );
       discountAmountExclTax += parseFloat(discount.toFixed(3));
-      console.log(
-        `[DescontoIndividual] Product ${title} (ID: ${productId}): Discount (excl. VAT): ${discount.toFixed(3)}€ (${discountOnly[productId].toFixed(3)}%)`,
-      );
     }
 
-    // Handle shipping discount
     if (hasShippingDiscount) {
       const shippingDiscount = order.discountApplications.find(
         (app) =>
@@ -201,17 +169,13 @@ export function Discounts(order) {
       }
       discountOnly["shipping"] = clampDiscount(
         shippingDiscountPercent,
-        "shipping discount",
+        "desconto de envio",
       );
       discountAmountExclTax += parseFloat(shippingDiscountExclTax.toFixed(3));
-      console.log(
-        `[DescontoIndividual] Shipping: Discount ${shippingDiscountExclTax.toFixed(3)}€ (excl. VAT, ${discountOnly["shipping"].toFixed(3)}%)`,
-      );
     } else {
       discountOnly["shipping"] = 0;
     }
   } else if (hasGeneralDiscount) {
-    // General discount (ALL + ACROSS)
     const generalDiscount = order.discountApplications.find(
       (app) =>
         app.node.targetType === "LINE_ITEM" &&
@@ -249,47 +213,12 @@ export function Discounts(order) {
     invoiceLevelDiscount = parseFloat(invoiceLevelDiscount.toFixed(3));
     discountAmountExclTax = invoiceLevelDiscount;
     generalDiscountPercentage = nominalDiscountPercent;
-    console.log(
-      `[DescontoGeral] General discount applied: ${invoiceLevelDiscount.toFixed(3)}€ (excl. VAT, ${generalDiscountPercentage.toFixed(3)}%)`,
-    );
   } else {
     orderDetails.forEach((detail) => {
       discountOnly[detail.productId] = 0;
     });
     discountOnly["shipping"] = 0;
-    console.log(`[DescontoGeral] No general discount applied.`);
-    console.log(`[DescontoIndividual] No individual discounts applied.`);
   }
-
-  // Final discount summary
-  console.log(
-    `[getOrderDiscounts] Final Discount Summary for Order ${order.name || "undefined"}:`,
-  );
-  if (isProductSpecificDiscount) {
-    console.log(`[DescontoIndividual] Individual Discounts:`);
-    orderDetails.forEach((detail) => {
-      const discountPercent = discountOnly[detail.productId];
-      const discountAmount = detail.discount;
-      console.log(
-        `[DescontoIndividual] Product ${detail.title} (ID: ${detail.productId}): ${discountAmount.toFixed(3)}€ (${discountPercent.toFixed(3)}%)`,
-      );
-    });
-    if (discountOnly["shipping"] > 0) {
-      console.log(
-        `[DescontoIndividual] Shipping: ${discountOnly["shipping"].toFixed(3)}%`,
-      );
-    }
-  } else if (hasGeneralDiscount) {
-    console.log(
-      `[DescontoGeral] General Discount: ${invoiceLevelDiscount.toFixed(3)}€ (${generalDiscountPercentage.toFixed(3)}%)`,
-    );
-  } else {
-    console.log(`[getOrderDiscounts] No discounts applied.`);
-  }
-
-  console.log(
-    `[getOrderDiscounts] discountOnly: ${JSON.stringify(discountOnly)} | isProductSpecificDiscount: ${isProductSpecificDiscount} | discountAmountExclTax: ${discountAmountExclTax} | invoiceLevelDiscount: ${invoiceLevelDiscount}`,
-  );
 
   return {
     discountOnly,

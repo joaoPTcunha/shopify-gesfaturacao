@@ -88,7 +88,6 @@ export async function fetchClientDataFromOrder(order) {
   let apiUrl = login.dom_licenca;
   if (!apiUrl.endsWith("/")) apiUrl += "/";
 
-  // Removed the check for taxId === "N/A" since it's now replaced with "999999990"
   if (customerData.name === "N/A") {
     throw new Error("Nome do cliente ausente para a pesquisa");
   }
@@ -118,6 +117,10 @@ export async function fetchClientDataFromOrder(order) {
       });
     } catch {
       continue;
+    }
+
+    if (!searchResponse.ok && searchResponse.status === 401) {
+      throw new Error("Sessão expirada. Por favor, faça login novamente.");
     }
 
     let searchResponseText;
@@ -156,7 +159,7 @@ export async function fetchClientDataFromOrder(order) {
   const formattedPhone = formatPhoneNumber(customerData.phone);
   const clientData = {
     name: customerData.name,
-    vatNumber: customerData.taxId, // Use the updated taxId (either original or "999999990")
+    vatNumber: customerData.taxId,
     country:
       customerData.shippingAddress?.country === "Portugal"
         ? "PT"

@@ -22,10 +22,14 @@ export async function sendEmail({ id, type, email, expired, apiUrl, token }) {
       },
     });
 
+    if (statusResponse.status === 401) {
+      throw new Error("Sessão expirada. Por favor, faça login novamente.");
+    }
+
     if (!statusResponse.ok) {
-      throw new Error(
-        `Falha ao obter detalhes da fatura: ${statusResponse.statusText}`,
-      );
+      if (response.status === 401) {
+        throw new Error("Sessão expirada. Por favor, faça login novamente.");
+      }
     }
 
     const statusData = await statusResponse.json();
@@ -37,7 +41,10 @@ export async function sendEmail({ id, type, email, expired, apiUrl, token }) {
       );
     }
   } catch (err) {
-    if (err.message.includes("anulada")) {
+    if (
+      err.message.includes("anulada") ||
+      err.message.includes("login novamente")
+    ) {
       throw err;
     }
     throw new Error(`Erro ao verificar o estado da fatura: ${err.message}`);
@@ -84,6 +91,9 @@ export async function sendEmail({ id, type, email, expired, apiUrl, token }) {
 
     return result;
   } catch (err) {
+    if (err.message.includes("login novamente")) {
+      throw err;
+    }
     throw new Error(
       `Erro ao enviar o email para a fatura ID ${id}: ${err.message}`,
     );

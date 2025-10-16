@@ -16,3 +16,7 @@ sho-jc1043 -> Teste Criação de um cliente novo sem VAT
 
 sho-jc4045 -> teste frontend com iva 0 (TOTAL 1021,06)
 
+
+!!!!
+Erro: createResponseBody.errors.some is not a function
+TOKEN EXPIRADO CORRIGIR

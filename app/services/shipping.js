@@ -7,9 +7,6 @@ export async function fetchShippingProductData(order, apiUrl, token) {
   });
 
   if (!login || !login.id_product_shipping) {
-    console.warn(
-      "[fetchShippingProductData] No id_product_shipping found in gESlogin, skipping shipping line item",
-    );
     return null;
   }
 
@@ -25,9 +22,6 @@ export async function fetchShippingProductData(order, apiUrl, token) {
   );
 
   if (!order.shippingLine?.price && !hasShippingDiscount) {
-    console.warn(
-      "[fetchShippingProductData] No valid shipping price found in order and no 100% discount, skipping shipping line item",
-    );
     return null;
   }
 
@@ -55,9 +49,6 @@ export async function fetchShippingProductData(order, apiUrl, token) {
     );
 
     if (!shippingProductResponse.ok) {
-      console.warn(
-        `[fetchShippingProductData] Failed to fetch shipping product (ID: ${login.id_product_shipping}): ${shippingProductResponse.statusText}`,
-      );
       return null;
     }
 
@@ -73,9 +64,6 @@ export async function fetchShippingProductData(order, apiUrl, token) {
     if (allProductsZeroVat) {
       shippingTaxRate = 0;
       shippingTaxId = 4;
-      console.log(
-        "[fetchShippingProductData] All products are VAT 0 → setting shipping VAT 0",
-      );
     }
 
     const shippingPriceWithVat = parseFloat(order.shippingLine?.price || 0);
@@ -111,9 +99,6 @@ export async function fetchShippingProductData(order, apiUrl, token) {
       },
     };
   } catch (error) {
-    console.warn(
-      `[fetchShippingProductData] Failed to fetch shipping product: ${error.message}`,
-    );
     return null;
   }
 }
