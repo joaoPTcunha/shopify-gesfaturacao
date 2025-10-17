@@ -11,12 +11,16 @@ export default function ConfigForm() {
   const {
     series,
     services,
+    banks,
+    paymentMethods,
     currentSerieId,
     currentServiceId,
+    currentBankId,
+    currentPaymentMethodId,
     finalized = true,
     email_auto = true,
-    error: loaderError,
     isLoggedIn = false,
+    error: loaderError,
   } = useLoaderData();
 
   const actionData = useActionData();
@@ -34,12 +38,25 @@ export default function ConfigForm() {
     series?.find((s) => s.id === currentSerieId)?.name || "",
   );
   const [selectedSerieId, setSelectedSerieId] = useState(currentSerieId || "");
+  const [showSeriesDropdown, setShowSeriesDropdown] = useState(false);
+
+  const [bankSearch, setBankSearch] = useState(
+    banks?.find((b) => b.id === currentBankId)?.name ||
+      banks?.find((b) => b.id === currentBankId)?.description ||
+      "",
+  );
+  const [selectedBankId, setSelectedBankId] = useState(currentBankId || "");
+  const [showBankDropdown, setShowBankDropdown] = useState(false);
+
+  const [selectedPaymentMethodId, setSelectedPaymentMethodId] = useState(
+    currentPaymentMethodId || "",
+  );
   const [finalizeChecked, setFinalizeChecked] = useState(finalized);
   const [emailAutoChecked, setEmailAutoChecked] = useState(email_auto);
-  const [showSeriesDropdown, setShowSeriesDropdown] = useState(false);
 
   const servicesRef = useRef(null);
   const seriesRef = useRef(null);
+  const bankRef = useRef(null);
 
   const filteredServices =
     services?.filter((service) =>
@@ -57,6 +74,15 @@ export default function ConfigForm() {
         : true,
     ) || [];
 
+  const filteredBanks =
+    banks?.filter((bank) =>
+      bankSearch
+        ? (bank.name || bank.description || `Banco ${bank.id}`)
+            ?.toLowerCase()
+            .includes(bankSearch.toLowerCase())
+        : true,
+    ) || [];
+
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (servicesRef.current && !servicesRef.current.contains(event.target)) {
@@ -64,6 +90,9 @@ export default function ConfigForm() {
       }
       if (seriesRef.current && !seriesRef.current.contains(event.target)) {
         setShowSeriesDropdown(false);
+      }
+      if (bankRef.current && !bankRef.current.contains(event.target)) {
+        setShowBankDropdown(false);
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
@@ -74,8 +103,8 @@ export default function ConfigForm() {
     let errorMessage = null;
 
     if (!isLoggedIn) {
-      errorMessage =
-        "Por favor, faça login antes de tentar guardar a configuração.";
+      errorMessage = "Sessão expirada. Por favor, faça login novamente.";
+      navigate("/ges-login?sessionExpired=true");
     } else if (loaderError) {
       errorMessage = loaderError;
     } else if (actionData?.error) {
@@ -104,6 +133,12 @@ export default function ConfigForm() {
     setShowSeriesDropdown(false);
   };
 
+  const handleBankSelect = (bank) => {
+    setSelectedBankId(bank.id);
+    setBankSearch(bank.name || bank.description || `Banco ${bank.id}`);
+    setShowBankDropdown(false);
+  };
+
   const clearServices = () => {
     setSelectedServiceId("");
     setServicesSearch("");
@@ -114,6 +149,16 @@ export default function ConfigForm() {
     setSelectedSerieId("");
     setSeriesSearch("");
     setShowSeriesDropdown(true);
+  };
+
+  const clearBank = () => {
+    setSelectedBankId("");
+    setBankSearch("");
+    setShowBankDropdown(true);
+  };
+
+  const handlePaymentMethodSelect = (methodId) => {
+    setSelectedPaymentMethodId(methodId);
   };
 
   return (
@@ -233,6 +278,114 @@ export default function ConfigForm() {
           value={selectedServiceId}
           required
         />
+      </div>
+
+      <div className="mb-4">
+        <label className="form-label fw-bold">
+          Selecionar Método de Pagamento
+        </label>
+        {paymentMethods.length > 0 ? (
+          <div className="table-responsive">
+            <table className="table table-hover table-bordered">
+              <thead className="table-light">
+                <tr>
+                  <th scope="col">Selecionar</th>
+                  <th scope="col">Nome</th>
+                  <th scope="col">Código</th>
+                  <th scope="col">Descrição</th>
+                  <th scope="col">Usa Banco?</th>
+                </tr>
+              </thead>
+              <tbody>
+                {paymentMethods.map((method) => (
+                  <tr
+                    key={method.id}
+                    onClick={() => handlePaymentMethodSelect(method.id)}
+                    style={{ cursor: "pointer" }}
+                    className={
+                      selectedPaymentMethodId === method.id
+                        ? "table-primary"
+                        : ""
+                    }
+                  >
+                    <td>
+                      <input
+                        type="radio"
+                        name="id_payment_method"
+                        value={method.id}
+                        checked={selectedPaymentMethodId === method.id}
+                        onChange={() => handlePaymentMethodSelect(method.id)}
+                      />
+                    </td>
+                    <td>{method.name}</td>
+                    <td>{method.code}</td>
+                    <td>{method.description}</td>
+                    <td>{method.needsBank === "1" ? "Sim" : "Não"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="alert alert-warning" role="alert">
+            Nenhum método de pagamento disponível. Verifique a sessão.
+          </div>
+        )}
+      </div>
+
+      <div className="mb-4" ref={bankRef}>
+        <label htmlFor="bankSearch" className="form-label fw-bold">
+          Selecionar Banco (Opcional)
+        </label>
+        <div className="dropdown position-relative">
+          <input
+            type="text"
+            id="bankSearch"
+            className="form-control"
+            placeholder="Introduza o nome do banco para filtrar"
+            value={bankSearch}
+            onChange={(e) => {
+              setBankSearch(e.target.value);
+              setSelectedBankId("");
+              setShowBankDropdown(true);
+            }}
+            onFocus={() => setShowBankDropdown(true)}
+            autoComplete="off"
+          />
+          {bankSearch.length > 0 && (
+            <button
+              type="button"
+              className="btn position-absolute top-50 end-0 translate-middle-y me-2"
+              style={{ color: "red", fontSize: "1.2rem", padding: "0" }}
+              onClick={clearBank}
+              title="Limpar seleção"
+            >
+              &times;
+            </button>
+          )}
+          <div
+            className={`dropdown-menu ${showBankDropdown ? "show" : ""}`}
+            style={{ maxHeight: "200px", overflowY: "auto", width: "100%" }}
+          >
+            {filteredBanks.length > 0 ? (
+              filteredBanks.map((bank) => (
+                <button
+                  key={bank.id}
+                  type="button"
+                  className="dropdown-item"
+                  onClick={() => handleBankSelect(bank)}
+                >
+                  {bank.name || bank.description || `Banco ${bank.id}`}
+                </button>
+              ))
+            ) : (
+              <span className="dropdown-item text-danger">
+                Nenhum banco disponível. Verifique a sessão.
+              </span>
+            )}
+          </div>
+        </div>
+        <input type="hidden" name="id_bank" value={selectedBankId} />
       </div>
 
       <div className="mb-4 form-check form-switch">

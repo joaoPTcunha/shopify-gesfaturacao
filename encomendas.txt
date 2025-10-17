@@ -16,5 +16,3 @@ sho-jc1043 -> Teste Criação de um cliente novo sem VAT
 
 sho-jc4045 -> teste frontend com iva 0 (TOTAL 1021,06)
 
-
-!no shopify nao retornar sempre no login

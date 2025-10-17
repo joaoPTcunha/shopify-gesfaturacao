@@ -158,24 +158,6 @@ export async function fetchProductDataFromOrder(order, lineItem) {
       );
     }
 
-    let categoryId = 45;
-    try {
-      const categoriesResponse = await fetch(`${apiUrl}categories`, {
-        method: "GET",
-        headers: {
-          Authorization: login.token,
-          Accept: "application/json",
-          "Content-Type": "application/json",
-        },
-      });
-      if (categoriesResponse.ok) {
-        const categoriesData = await categoriesResponse.json();
-        if (categoriesData.data?.length > 0) {
-          categoryId = parseInt(categoriesData.data[0].id, 10);
-        }
-      }
-    } catch {}
-
     const productData = {
       name: lineItem.title,
       code: productCode,
@@ -190,7 +172,7 @@ export async function fetchProductDataFromOrder(order, lineItem) {
       serial_number: "",
       currency: order.currency || "EUR",
       description: lineItem.title,
-      category: categoryId,
+      category: "",
       exemption_reason: "",
       observations: "",
       image: "",

@@ -1,29 +1,25 @@
 import { Form, useActionData } from "@remix-run/react";
+import { useEffect } from "react";
+import { toast } from "sonner";
 
 export default function LoginForm() {
   const actionData = useActionData();
 
+  useEffect(() => {
+    if (actionData?.error) {
+      toast.error(actionData.error, {
+        duration: 5000,
+      });
+    }
+    if (actionData?.success) {
+      toast.success(actionData.success, {
+        duration: 3000,
+      });
+    }
+  }, [actionData]);
+
   return (
     <Form method="post" className="p-4 bg-light rounded-3">
-      {actionData?.error && (
-        <div
-          className="alert alert-danger d-flex align-items-center"
-          role="alert"
-        >
-          <i className="bi bi-exclamation-circle-fill me-2"></i>
-          {actionData.error}
-        </div>
-      )}
-      {actionData?.success && (
-        <div
-          className="alert alert-success d-flex align-items-center"
-          role="alert"
-        >
-          <i className="bi bi-check-circle-fill me-2"></i>
-          {actionData.success}
-        </div>
-      )}
-
       <div className="mb-4">
         <label htmlFor="dom_licenca" className="form-label fw-medium">
           <i className="bi bi-globe me-2"></i> Domínio da API
@@ -37,7 +33,11 @@ export default function LoginForm() {
           aria-describedby="dom_licenca_help"
           placeholder="Introduza o Link da API GESFaturação"
           autoComplete="url"
+          defaultValue="https://development.gesfaturacao.pt/api/v1.0.4"
         />
+        <small id="dom_licenca_help" className="form-text text-muted">
+          https://development.gesfaturacao.pt/api/v1.0.4
+        </small>
       </div>
 
       <div className="mb-3">

@@ -23,12 +23,6 @@ export async function generateInvoice(order) {
     orderBy: { date_login: "desc" },
   });
 
-  if (!login.id_serie || !login.id_product_shipping) {
-    throw new Error(
-      "Configuração incompleta: por favor, defina a série e o produto de portes na página de configuração do GESFaturação.",
-    );
-  }
-
   const expireDate = login.date_expire ? new Date(login.date_expire) : null;
   if (!expireDate || expireDate < new Date()) {
     await prisma.gESlogin.delete({ where: { id: login.id } });
@@ -37,6 +31,46 @@ export async function generateInvoice(order) {
 
   let apiUrl = login.dom_licenca;
   if (!apiUrl.endsWith("/")) apiUrl += "/";
+
+  let paymentMethods = [];
+  try {
+    const paymentMethodsResponse = await fetch(`${apiUrl}payment-methods`, {
+      method: "GET",
+      headers: {
+        Authorization: login.token,
+        Accept: "application/json",
+      },
+    });
+
+    const paymentMethodsData = await paymentMethodsResponse.json();
+    paymentMethods = Array.isArray(paymentMethodsData.data)
+      ? paymentMethodsData.data
+      : [];
+  } catch (error) {
+    console.error("Erro ao buscar métodos de pagamento:", error.message);
+  }
+
+  const selectedPaymentMethod = paymentMethods.find(
+    (method) => method.id === login.id_payment_method,
+  );
+  const payment = login.id_payment_method
+    ? parseInt(login.id_payment_method, 10)
+    : 3;
+  const needsBank = selectedPaymentMethod
+    ? selectedPaymentMethod.needsBank === "1"
+    : false;
+  const bank = needsBank && login.id_bank ? parseInt(login.id_bank, 10) : 0;
+
+  if (
+    !login.id_serie ||
+    !login.id_product_shipping ||
+    !login.id_bank ||
+    !login.id_payment_method
+  ) {
+    throw new Error(
+      "Configuração incompleta: Por favor, verifique todos os campos obrigatorios na página de configuração.",
+    );
+  }
 
   const existingInvoice = await prisma.gESinvoices.findFirst({
     where: { order_id: order.id.toString() },
@@ -174,13 +208,6 @@ export async function generateInvoice(order) {
     const lineVat = lineAfterDiscountExcl * (taxRate / 100.0);
     totalBaseExclTax += lineAfterDiscountExcl;
     totalBaseVat += lineVat;
-
-    productResults.push({
-      title: item.title,
-      productId: productResult.productId,
-      status: productResult.status,
-      found: productResult.found,
-    });
   }
 
   let totalShippingExclTax = getMonetaryValue(
@@ -328,9 +355,9 @@ export async function generateInvoice(order) {
     date,
     expiration,
     coin: 1,
-    payment: 3,
-    needsBank: false,
-    bank: 0,
+    payment,
+    needsBank,
+    bank,
     lines,
     finalize: login.finalized,
     reference: order.orderNumber,

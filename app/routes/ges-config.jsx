@@ -5,77 +5,133 @@ import ConfigForm from "../components/ConfigForm";
 
 export async function loader({ request }) {
   try {
-    // Verifica se o modelo existe
     if (!prisma.GESlogin) {
       throw new Error("Prisma GESlogin model is not available.");
     }
 
-    // Busca o último login
     let login = await prisma.GESlogin.findFirst({
       orderBy: { date_login: "desc" },
     });
 
-    // Se não houver login, usuário não está autenticado
-    const isLoggedIn = !!login && !!login.token;
-    if (!isLoggedIn) {
-      return json({
-        series: [],
-        services: [],
-        currentSerieId: "",
-        currentServiceId: "",
-        finalized: true,
-        email_auto: true,
-        error: null,
-        isLoggedIn: false,
+    if (!login) {
+      login = await prisma.GESlogin.create({
+        data: {
+          dom_licenca: "",
+          token: "",
+          date_login: new Date(),
+          date_expire: new Date(Date.now() + 24 * 60 * 60 * 1000 * 30),
+          id_serie: "",
+          id_product_shipping: "",
+          id_bank: "",
+          id_payment_method: "",
+          finalized: true,
+          email_auto: true,
+        },
       });
     }
 
-    // Verifica se login expirou
     const expireDate = login.date_expire ? new Date(login.date_expire) : null;
     if (!expireDate || expireDate < new Date()) {
       await prisma.GESlogin.delete({ where: { id: login.id } });
-      return redirect("/ges-login");
+      return redirect("/ges-login?sessionExpired=true");
     }
 
-    // Busca séries e serviços via API
     let seriesData = [];
     let servicesData = [];
+    let banksData = [];
+    let paymentMethodsData = [];
     try {
       let apiUrl = login.dom_licenca;
       if (!apiUrl.endsWith("/")) apiUrl += "/";
 
-      // Series
-      const seriesResponse = await fetch(`${apiUrl}series`, {
+      const seriesUrl = `${apiUrl}series`;
+      const seriesResponse = await fetch(seriesUrl, {
         method: "GET",
-        headers: { Authorization: login.token, Accept: "application/json" },
+        headers: {
+          Authorization: login.token,
+          Accept: "application/json",
+        },
       });
-      if (seriesResponse.ok) {
-        const data = await seriesResponse.json();
-        seriesData = Array.isArray(data?.data) ? data.data : [];
+      if (!seriesResponse.ok) {
+        throw new Error(
+          `Series API request failed: ${await seriesResponse.text()}`,
+        );
       }
+      const seriesFullResponse = await seriesResponse.json();
+      seriesData = Array.isArray(seriesFullResponse.data)
+        ? seriesFullResponse.data
+        : [];
 
-      // Services
-      const servicesResponse = await fetch(`${apiUrl}products/type/service`, {
+      const servicesUrl = `${apiUrl}products/type/service`;
+      const servicesResponse = await fetch(servicesUrl, {
         method: "GET",
-        headers: { Authorization: login.token, Accept: "application/json" },
+        headers: {
+          Authorization: login.token,
+          Accept: "application/json",
+        },
       });
-      if (servicesResponse.ok) {
-        const data = await servicesResponse.json();
-        servicesData = Array.isArray(data?.data) ? data.data : [];
+      if (!servicesResponse.ok) {
+        throw new Error(
+          `Services API request failed: ${await servicesResponse.text()}`,
+        );
       }
+      const servicesFullResponse = await servicesResponse.json();
+      servicesData = Array.isArray(servicesFullResponse.data)
+        ? servicesFullResponse.data
+        : [];
+
+      const banksUrl = `${apiUrl}banks`;
+      const banksResponse = await fetch(banksUrl, {
+        method: "GET",
+        headers: {
+          Authorization: login.token,
+          Accept: "application/json",
+        },
+      });
+      if (!banksResponse.ok) {
+        throw new Error(
+          `Banks API request failed: ${await banksResponse.text()}`,
+        );
+      }
+      const banksFullResponse = await banksResponse.json();
+      banksData = Array.isArray(banksFullResponse.data)
+        ? banksFullResponse.data
+        : [];
+
+      const paymentMethodsUrl = `${apiUrl}payment-methods`;
+      const paymentMethodsResponse = await fetch(paymentMethodsUrl, {
+        method: "GET",
+        headers: {
+          Authorization: login.token,
+          Accept: "application/json",
+        },
+      });
+      if (!paymentMethodsResponse.ok) {
+        throw new Error(
+          `Payment Methods API request failed: ${await paymentMethodsResponse.text()}`,
+        );
+      }
+      const paymentMethodsFullResponse = await paymentMethodsResponse.json();
+      paymentMethodsData = Array.isArray(paymentMethodsFullResponse.data)
+        ? paymentMethodsFullResponse.data
+        : [];
     } catch (error) {
-      console.error("Erro ao buscar séries ou serviços:", error.message);
+      console.error("Erro ao buscar dados da API:", error.message);
     }
 
     return json({
       series: seriesData,
       services: servicesData,
+      banks: banksData,
+      paymentMethods: paymentMethodsData,
       currentSerieId: login.id_serie || "",
       currentServiceId: login.id_product_shipping || "",
+      currentBankId: login.id_bank || "",
+      currentPaymentMethodId: login.id_payment_method || "",
       finalized: login.finalized ?? true,
       email_auto: login.email_auto ?? true,
+      isLoggedIn: !!login.token,
       error: null,
-      isLoggedIn: true,
     });
   } catch (error) {
     console.error("Erro ao carregar configuração:", error.message);
@@ -83,12 +139,16 @@ export async function loader({ request }) {
       {
         series: [],
         services: [],
+        banks: [],
+        paymentMethods: [],
         currentSerieId: "",
         currentServiceId: "",
+        currentBankId: "",
+        currentPaymentMethodId: "",
         finalized: true,
         email_auto: true,
-        error: "Não foi possível carregar a configuração",
         isLoggedIn: false,
+        error: "Sessão expirada. Por favor, faça login novamente.",
       },
       { status: 500 },
     );
@@ -100,48 +160,41 @@ export async function action({ request }) {
     const formData = await request.formData();
     const id_serie = formData.get("id_serie")?.trim();
     const id_product_shipping = formData.get("id_product_shipping")?.trim();
+    const id_bank = formData.get("id_bank")?.trim();
+    const id_payment_method = formData.get("id_payment_method")?.trim();
     const finalized = formData.get("finalized") === "on";
     const email_auto = formData.get("email_auto") === "on";
 
-    // Valida campos obrigatórios
-    if (!id_serie || !id_product_shipping) {
-      return json(
-        { error: "Série e Portes são obrigatórios" },
-        { status: 400 },
-      );
-    }
-
-    // Busca último login
     const login = await prisma.GESlogin.findFirst({
       orderBy: { date_login: "desc" },
     });
-
-    // Se não estiver logado, redireciona para login
     if (!login || !login.token) {
-      return redirect("/ges-login");
+      return redirect("/ges-login?sessionExpired=true");
     }
 
-    // Verifica se login expirou
     const expireDate = login.date_expire ? new Date(login.date_expire) : null;
     if (!expireDate || expireDate < new Date()) {
       await prisma.GESlogin.delete({ where: { id: login.id } });
-      return redirect("/ges-login");
+      return redirect("/ges-login?sessionExpired=true");
     }
 
-    // Atualiza configuração
     await prisma.GESlogin.update({
       where: { id: login.id },
-      data: { id_serie, id_product_shipping, finalized, email_auto },
+      data: {
+        id_serie,
+        id_product_shipping,
+        id_bank: id_bank || null,
+        id_payment_method: id_payment_method || null,
+        finalized,
+        email_auto,
+      },
     });
 
     return json({ success: true });
   } catch (error) {
     console.error("Erro ao salvar configuração:", error.message);
     return json(
-      {
-        error:
-          "Não foi possível salvar a configuração. Por favor, tente novamente.",
-      },
+      { error: "Erro ao salvar configuração: " + error.message },
       { status: 500 },
     );
   }
@@ -158,7 +211,6 @@ export default function ConfigPage() {
                 <h1 className="display-6 fw-bold mb-5">
                   Configuração GESFaturação
                 </h1>
-
                 <ConfigForm />
               </div>
             </div>

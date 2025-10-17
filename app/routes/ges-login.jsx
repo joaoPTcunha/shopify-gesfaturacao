@@ -4,7 +4,7 @@ import {
   useSearchParams,
 } from "@remix-run/react";
 import { redirect, json } from "@remix-run/node";
-import prisma from "../../prisma/client";
+import prisma from "../../prisma/client"; // Ensure this path is correct
 import Layout from "../components/Layout";
 import LoginForm from "../components/LoginForm";
 import { useEffect, useState, useRef } from "react";
@@ -39,9 +39,8 @@ export async function loader({ request }) {
 
     return json({ isAuthenticated });
   } catch (error) {
-    console.error("Erro no loader:", error.message);
     return json(
-      { error: error.message, isAuthenticated: false },
+      { error: "Erro ao carregar a página de login", isAuthenticated: false },
       { status: 500 },
     );
   }
@@ -61,7 +60,15 @@ export async function action({ request }) {
       );
     }
 
-    new URL(dom_licenca);
+    try {
+      new URL(dom_licenca);
+    } catch {
+      return json(
+        { error: "Domínio da API inválido. Por favor, insira um URL válido." },
+        { status: 400 },
+      );
+    }
+
     if (!dom_licenca.endsWith("/")) dom_licenca += "/";
 
     const res = await fetch(`${dom_licenca}login`, {
@@ -74,17 +81,41 @@ export async function action({ request }) {
     });
 
     if (!res.ok) {
-      const errorText = await res.text();
-      return json(
-        { error: `Credenciais inválidas: ${errorText || res.statusText}` },
-        { status: res.status },
-      );
+      let errorText;
+      try {
+        errorText = await res.text();
+        const errorData = JSON.parse(errorText || "{}");
+        const errorMessage =
+          errorData.errors?.[0]?.message ||
+          errorData.message ||
+          errorData.error ||
+          res.statusText ||
+          "Erro desconhecido";
+        return json(
+          {
+            error:
+              errorMessage.includes("password") ||
+              errorMessage.includes("username")
+                ? "Credenciais inválidas. Por favor, verifique o nome de utilizador, palavra-passe ou domínio da API e tente novamente."
+                : `Erro na autenticação: ${errorMessage}`,
+          },
+          { status: res.status },
+        );
+      } catch {
+        return json(
+          { error: "Erro ao processar a resposta da API: resposta inválida" },
+          { status: res.status },
+        );
+      }
     }
 
     const data = await res.json();
     const token = data._token;
     if (!token) {
-      return json({ error: "Token não retornado pela API." }, { status: 400 });
+      return json(
+        { error: "Token não retornado pela API. Verifique as credenciais." },
+        { status: 400 },
+      );
     }
 
     await prisma.GESlogin.deleteMany({ where: { dom_licenca } });
@@ -94,6 +125,8 @@ export async function action({ request }) {
         token,
         id_serie: data.id_serie ?? "",
         id_product_shipping: data.id_product_shipping ?? "",
+        id_bank: data.id_bank ?? "",
+        id_payment_method: data.id_payment_method ?? "",
         date_login: new Date().toISOString(),
         date_expire:
           data.expire_date ??
@@ -103,11 +136,10 @@ export async function action({ request }) {
       },
     });
 
-    return redirect("/ges-config", {});
+    return redirect("/ges-config");
   } catch (error) {
-    console.error("Erro ao ligar à API:", error.message);
     return json(
-      { error: "Erro ao ligar à API: " + error.message },
+      { error: "Erro ao ligar à API. Por favor, tente novamente." },
       { status: 500 },
     );
   }
@@ -150,6 +182,12 @@ export default function LoginPage() {
   useEffect(() => {
     if (isAuthenticated && !logout) {
       revalidator.revalidate();
+      toast.success("Sessão ativa! Redirecionando para encomendas...", {
+        duration: 2000,
+      });
+      setTimeout(() => {
+        window.location.href = "/ges-orders";
+      }, 2000);
     }
   }, [isAuthenticated, logout, revalidator]);
 
