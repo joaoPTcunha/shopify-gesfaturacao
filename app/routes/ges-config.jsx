@@ -168,9 +168,6 @@ export async function action({ request }) {
     const login = await prisma.GESlogin.findFirst({
       orderBy: { date_login: "desc" },
     });
-    if (!login || !login.token) {
-      return redirect("/ges-login?sessionExpired=true");
-    }
 
     const expireDate = login.date_expire ? new Date(login.date_expire) : null;
     if (!expireDate || expireDate < new Date()) {
@@ -184,7 +181,7 @@ export async function action({ request }) {
         id_serie,
         id_product_shipping,
         id_bank: id_bank || null,
-        id_payment_method: id_payment_method || null,
+        id_payment_method: id_payment_method,
         finalized,
         email_auto,
       },

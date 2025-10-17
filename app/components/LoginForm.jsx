@@ -35,9 +35,6 @@ export default function LoginForm() {
           autoComplete="url"
           defaultValue="https://development.gesfaturacao.pt/api/v1.0.4"
         />
-        <small id="dom_licenca_help" className="form-text text-muted">
-          https://development.gesfaturacao.pt/api/v1.0.4
-        </small>
       </div>
 
       <div className="mb-3">

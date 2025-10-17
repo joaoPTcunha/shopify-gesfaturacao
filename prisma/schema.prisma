@@ -31,7 +31,7 @@ model GESlogin {
   token               String
   id_serie            String
   id_product_shipping String
-  id_bank             String
+  id_bank             String?
   id_payment_method   String
   finalized           Boolean @default(true)
   email_auto          Boolean @default(true)

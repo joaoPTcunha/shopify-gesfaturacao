@@ -160,9 +160,30 @@ export default function ConfigForm() {
   const handlePaymentMethodSelect = (methodId) => {
     setSelectedPaymentMethodId(methodId);
   };
-
+  const handleSubmit = (event) => {
+    const selectedMethod = paymentMethods.find(
+      (method) => method.id === selectedPaymentMethodId,
+    );
+    if (selectedMethod?.needsBank === "0" && selectedBankId) {
+      event.preventDefault();
+      toast.error(
+        "O pagamento foi efetuado sem um banco associado. Atualize as configurações para corrigir.",
+        {
+          duration: 5000,
+        },
+      );
+    } else if (selectedMethod?.needsBank === "1" && !selectedBankId) {
+      event.preventDefault();
+      toast.error(
+        "Este método de pagamento requer a seleção de um banco. Por favor, selecione um banco.",
+        {
+          duration: 5000,
+        },
+      );
+    }
+  };
   return (
-    <Form method="post" className="p-2" lang="pt-PT">
+    <Form method="post" className="p-2" lang="pt-PT" onSubmit={handleSubmit}>
       <div className="mb-4" ref={seriesRef}>
         <label htmlFor="seriesSearch" className="form-label fw-bold">
           Selecionar Série
@@ -289,9 +310,8 @@ export default function ConfigForm() {
             <table className="table table-hover table-bordered">
               <thead className="table-light">
                 <tr>
-                  <th scope="col">Selecionar</th>
+                  <th scope="col">Selecione</th>
                   <th scope="col">Nome</th>
-                  <th scope="col">Código</th>
                   <th scope="col">Descrição</th>
                   <th scope="col">Usa Banco?</th>
                 </tr>
@@ -318,7 +338,6 @@ export default function ConfigForm() {
                       />
                     </td>
                     <td>{method.name}</td>
-                    <td>{method.code}</td>
                     <td>{method.description}</td>
                     <td>{method.needsBank === "1" ? "Sim" : "Não"}</td>
                   </tr>
@@ -335,8 +354,9 @@ export default function ConfigForm() {
 
       <div className="mb-4" ref={bankRef}>
         <label htmlFor="bankSearch" className="form-label fw-bold">
-          Selecionar Banco (Opcional)
+          Selecionar Banco (apenas se o método de pagamento exigir banco)
         </label>
+
         <div className="dropdown position-relative">
           <input
             type="text"
@@ -352,30 +372,40 @@ export default function ConfigForm() {
             onFocus={() => setShowBankDropdown(true)}
             autoComplete="off"
           />
+
           {bankSearch.length > 0 && (
             <button
               type="button"
               className="btn position-absolute top-50 end-0 translate-middle-y me-2"
-              style={{ color: "red", fontSize: "1.2rem", padding: "0" }}
+              style={{ color: "red", fontSize: "1.2rem", padding: 0 }}
               onClick={clearBank}
               title="Limpar seleção"
             >
               &times;
             </button>
           )}
+
           <div
             className={`dropdown-menu ${showBankDropdown ? "show" : ""}`}
-            style={{ maxHeight: "200px", overflowY: "auto", width: "100%" }}
+            style={{
+              maxHeight: "220px",
+              overflowY: "auto",
+              width: "100%",
+              zIndex: 1050,
+            }}
           >
             {filteredBanks.length > 0 ? (
               filteredBanks.map((bank) => (
                 <button
                   key={bank.id}
                   type="button"
-                  className="dropdown-item"
+                  className="dropdown-item text-start"
                   onClick={() => handleBankSelect(bank)}
                 >
-                  {bank.name || bank.description || `Banco ${bank.id}`}
+                  {bank.name || `Banco ${bank.id}`}
+                  {bank.description && (
+                    <div className="text-muted small">{bank.description}</div>
+                  )}
                 </button>
               ))
             ) : (
@@ -385,6 +415,7 @@ export default function ConfigForm() {
             )}
           </div>
         </div>
+
         <input type="hidden" name="id_bank" value={selectedBankId} />
       </div>
 

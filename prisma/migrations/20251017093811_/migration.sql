@@ -24,7 +24,7 @@ CREATE TABLE "GESlogin" (
     "token" TEXT NOT NULL,
     "id_serie" TEXT NOT NULL,
     "id_product_shipping" TEXT NOT NULL,
-    "id_bank" TEXT NOT NULL,
+    "id_bank" TEXT,
     "id_payment_method" TEXT NOT NULL,
     "finalized" BOOLEAN NOT NULL DEFAULT true,
     "email_auto" BOOLEAN NOT NULL DEFAULT true,

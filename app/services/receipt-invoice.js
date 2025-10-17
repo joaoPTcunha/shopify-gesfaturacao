@@ -56,15 +56,13 @@ export async function generateInvoice(order) {
   const payment = login.id_payment_method
     ? parseInt(login.id_payment_method, 10)
     : 3;
-  const needsBank = selectedPaymentMethod
-    ? selectedPaymentMethod.needsBank === "1"
-    : false;
+  const needsBank = selectedPaymentMethod?.needsBank === "1";
+
   const bank = needsBank && login.id_bank ? parseInt(login.id_bank, 10) : 0;
 
   if (
     !login.id_serie ||
     !login.id_product_shipping ||
-    !login.id_bank ||
     !login.id_payment_method
   ) {
     throw new Error(
