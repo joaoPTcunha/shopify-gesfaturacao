@@ -26,6 +26,7 @@ export default function ConfigForm() {
   const actionData = useActionData();
   const navigate = useNavigate();
 
+  // State for series dropdown
   const [servicesSearch, setServicesSearch] = useState(
     services?.find((s) => s.id === currentServiceId)?.description || "",
   );
@@ -40,13 +41,24 @@ export default function ConfigForm() {
   const [selectedSerieId, setSelectedSerieId] = useState(currentSerieId || "");
   const [showSeriesDropdown, setShowSeriesDropdown] = useState(false);
 
+  // State for payment mappings, including search and dropdown visibility
   const [paymentMappingsState, setPaymentMappingsState] = useState(
     shopifyPaymentGateways.map((gateway) => {
       const mapping = paymentMappings.find((m) => m.payment_name === gateway);
+      const paymentMethod = paymentMethods.find(
+        (m) => m.id === mapping?.ges_payment_id,
+      );
+      const bank = banks.find((b) => b.id === mapping?.ges_bank_id);
       return {
         payment_name: gateway,
         ges_payment_id: mapping?.ges_payment_id || "",
         ges_bank_id: mapping?.ges_bank_id || "",
+        paymentSearch: paymentMethod?.name || "",
+        bankSearch: bank
+          ? bank.name || bank.description || `Banco ${bank.id}`
+          : "",
+        showPaymentDropdown: false,
+        showBankDropdown: false,
       };
     }),
   );
@@ -56,7 +68,18 @@ export default function ConfigForm() {
 
   const servicesRef = useRef(null);
   const seriesRef = useRef(null);
+  const paymentRefs = useRef([]);
+  const bankRefs = useRef([]);
 
+  useEffect(() => {
+    paymentRefs.current = paymentRefs.current.slice(
+      0,
+      shopifyPaymentGateways.length,
+    );
+    bankRefs.current = bankRefs.current.slice(0, shopifyPaymentGateways.length);
+  }, [shopifyPaymentGateways.length]);
+
+  // Filtered series and services
   const filteredServices =
     services?.filter((service) =>
       servicesSearch
@@ -73,6 +96,7 @@ export default function ConfigForm() {
         : true,
     ) || [];
 
+  // Click outside handler for all dropdowns
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (servicesRef.current && !servicesRef.current.contains(event.target)) {
@@ -81,11 +105,34 @@ export default function ConfigForm() {
       if (seriesRef.current && !seriesRef.current.contains(event.target)) {
         setShowSeriesDropdown(false);
       }
+      paymentMappingsState.forEach((_, index) => {
+        if (
+          paymentRefs.current[index] &&
+          !paymentRefs.current[index].contains(event.target)
+        ) {
+          setPaymentMappingsState((prev) =>
+            prev.map((m, i) =>
+              i === index ? { ...m, showPaymentDropdown: false } : m,
+            ),
+          );
+        }
+        if (
+          bankRefs.current[index] &&
+          !bankRefs.current[index].contains(event.target)
+        ) {
+          setPaymentMappingsState((prev) =>
+            prev.map((m, i) =>
+              i === index ? { ...m, showBankDropdown: false } : m,
+            ),
+          );
+        }
+      });
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
+  }, [paymentMappingsState]);
 
+  // Handle errors and success
   useEffect(() => {
     let errorMessage = null;
 
@@ -108,6 +155,7 @@ export default function ConfigForm() {
     }
   }, [loaderError, actionData, navigate, isLoggedIn]);
 
+  // Handlers for series and services
   const handleServicesSelect = (service) => {
     setSelectedServiceId(service.id);
     setServicesSearch(service.description);
@@ -132,18 +180,122 @@ export default function ConfigForm() {
     setShowSeriesDropdown(true);
   };
 
-  const handlePaymentMappingChange = (paymentName, field, value) => {
+  // Handlers for payment mappings
+  const handlePaymentMappingChange = (index, field, value) => {
     setPaymentMappingsState((prev) =>
-      prev.map((mapping) =>
-        mapping.payment_name === paymentName
-          ? { ...mapping, [field]: value }
+      prev.map((mapping, i) =>
+        i === index ? { ...mapping, [field]: value } : mapping,
+      ),
+    );
+  };
+
+  const handlePaymentSearchChange = (index, value) => {
+    setPaymentMappingsState((prev) =>
+      prev.map((mapping, i) =>
+        i === index
+          ? {
+              ...mapping,
+              paymentSearch: value,
+              ges_payment_id: "",
+              showPaymentDropdown: true,
+            }
           : mapping,
       ),
     );
   };
 
+  const handleBankSearchChange = (index, value) => {
+    setPaymentMappingsState((prev) =>
+      prev.map((mapping, i) =>
+        i === index
+          ? {
+              ...mapping,
+              bankSearch: value,
+              ges_bank_id: "",
+              showBankDropdown: true,
+            }
+          : mapping,
+      ),
+    );
+  };
+
+  const handlePaymentSelect = (index, method) => {
+    setPaymentMappingsState((prev) =>
+      prev.map((mapping, i) =>
+        i === index
+          ? {
+              ...mapping,
+              ges_payment_id: method.id,
+              paymentSearch: method.name,
+              showPaymentDropdown: false,
+            }
+          : mapping,
+      ),
+    );
+  };
+
+  const handleBankSelect = (index, bank) => {
+    setPaymentMappingsState((prev) =>
+      prev.map((mapping, i) =>
+        i === index
+          ? {
+              ...mapping,
+              ges_bank_id: bank.id,
+              bankSearch: bank.id
+                ? bank.name || bank.description || `Banco ${bank.id}`
+                : "",
+              showBankDropdown: false,
+            }
+          : mapping,
+      ),
+    );
+  };
+
+  const clearPayment = (index) => {
+    setPaymentMappingsState((prev) =>
+      prev.map((mapping, i) =>
+        i === index
+          ? {
+              ...mapping,
+              ges_payment_id: "",
+              paymentSearch: "",
+              showPaymentDropdown: true,
+            }
+          : mapping,
+      ),
+    );
+  };
+
+  const clearBank = (index) => {
+    setPaymentMappingsState((prev) =>
+      prev.map((mapping, i) =>
+        i === index
+          ? {
+              ...mapping,
+              ges_bank_id: "",
+              bankSearch: "",
+              showBankDropdown: true,
+            }
+          : mapping,
+      ),
+    );
+  };
+
+  const getFilteredPaymentMethods = (search) =>
+    paymentMethods.filter((method) =>
+      search ? method.name?.toLowerCase().includes(search.toLowerCase()) : true,
+    );
+
+  const getFilteredBanks = (search) =>
+    banks.filter((bank) =>
+      search
+        ? (bank.name || bank.description || `Banco ${bank.id}`)
+            .toLowerCase()
+            .includes(search.toLowerCase())
+        : true,
+    );
+
   const handleSubmit = (event) => {
-    // Validate payment mappings and show warnings for unnecessary banks
     const invalidMappings = [];
     const warnings = [];
 
@@ -152,14 +304,12 @@ export default function ConfigForm() {
         (m) => m.id === mapping.ges_payment_id,
       );
 
-      // Check for invalid configurations
       if (method?.needsBank === "1" && !mapping.ges_bank_id) {
         invalidMappings.push(mapping.payment_name);
       } else if (method?.needsBank === "0" && mapping.ges_bank_id) {
         warnings.push(
           `Método de pagamento ${mapping.payment_name} não requer banco. O banco selecionado será ignorado e enviado como vazio.`,
         );
-        // Clear ges_bank_id for submission
         return { ...mapping, ges_bank_id: "" };
       }
       return mapping;
@@ -176,12 +326,10 @@ export default function ConfigForm() {
       return;
     }
 
-    // Show warnings for unnecessary banks
     warnings.forEach((warning) => {
       toast.warning(warning, { duration: 5000 });
     });
 
-    // Update state to clear ges_bank_id for methods that don't need it
     setPaymentMappingsState(updatedMappings);
   };
 
@@ -309,19 +457,21 @@ export default function ConfigForm() {
           Mapear Métodos de Pagamento do Shopify
         </label>
         {shopifyPaymentGateways.length > 0 ? (
-          <div className="table-responsive">
+          <div className="table">
             <table className="table table-hover table-bordered">
               <thead className="table-light">
                 <tr>
                   <th scope="col">Método de Pagamento (Shopify)</th>
-                  <th scope="col">Método de Pagamento (GESFaturação)</th>
+                  <th scope="col" style={{ width: "45%" }}>
+                    Método de Pagamento (GESFaturação)
+                  </th>
                   <th scope="col">Banco (GESFaturação)</th>
                 </tr>
               </thead>
               <tbody>
                 {paymentMappingsState.map((mapping, index) => (
                   <tr key={mapping.payment_name}>
-                    <td>
+                    <td className="align-middle">
                       {mapping.payment_name}
                       <input
                         type="hidden"
@@ -329,50 +479,178 @@ export default function ConfigForm() {
                         value={mapping.payment_name}
                       />
                     </td>
-                    <td>
-                      <select
-                        name={`paymentMappings[${index}][ges_payment_id]`}
-                        className="form-select"
-                        value={mapping.ges_payment_id}
-                        onChange={(e) =>
-                          handlePaymentMappingChange(
-                            mapping.payment_name,
-                            "ges_payment_id",
-                            e.target.value,
-                          )
-                        }
-                        required
+
+                    <td className="align-middle">
+                      <div
+                        className="dropdown position-relative"
+                        ref={(el) => (paymentRefs.current[index] = el)}
                       >
-                        <option value="">Selecione um método</option>
-                        {paymentMethods.map((method) => (
-                          <option key={method.id} value={method.id}>
-                            {method.name} ({method.description})
-                          </option>
-                        ))}
-                      </select>
+                        <input
+                          type="text"
+                          className="form-control"
+                          placeholder="Procurar método de pagamento"
+                          value={mapping.paymentSearch}
+                          onChange={(e) =>
+                            handlePaymentSearchChange(index, e.target.value)
+                          }
+                          onFocus={() =>
+                            setPaymentMappingsState((prev) =>
+                              prev.map((m, i) =>
+                                i === index
+                                  ? { ...m, showPaymentDropdown: true }
+                                  : m,
+                              ),
+                            )
+                          }
+                          autoComplete="off"
+                          required
+                        />
+
+                        {mapping.paymentSearch.length > 0 && (
+                          <button
+                            type="button"
+                            className="btn position-absolute top-50 end-0 translate-middle-y me-2"
+                            style={{
+                              color: "red",
+                              fontSize: "1.2rem",
+                              padding: "0",
+                            }}
+                            onClick={() => clearPayment(index)}
+                            title="Limpar seleção"
+                          >
+                            &times;
+                          </button>
+                        )}
+
+                        <div
+                          className={`dropdown-menu ${
+                            mapping.showPaymentDropdown ? "show" : ""
+                          }`}
+                          style={{
+                            width: "100%",
+                            maxHeight: "100px",
+                            overflowY: "auto",
+                            overflowX: "hidden",
+                          }}
+                        >
+                          {getFilteredPaymentMethods(mapping.paymentSearch)
+                            .length > 0 ? (
+                            getFilteredPaymentMethods(
+                              mapping.paymentSearch,
+                            ).map((method) => (
+                              <button
+                                key={method.id}
+                                type="button"
+                                className="dropdown-item"
+                                onClick={() =>
+                                  handlePaymentSelect(index, method)
+                                }
+                              >
+                                {method.name}
+                              </button>
+                            ))
+                          ) : (
+                            <span className="dropdown-item text-danger">
+                              Nenhum método encontrado.
+                            </span>
+                          )}
+                        </div>
+
+                        <input
+                          type="hidden"
+                          name={`paymentMappings[${index}][ges_payment_id]`}
+                          value={mapping.ges_payment_id}
+                          required
+                        />
+                      </div>
                     </td>
-                    <td>
-                      <select
-                        name={`paymentMappings[${index}][ges_bank_id]`}
-                        className="form-select"
-                        value={mapping.ges_bank_id}
-                        onChange={(e) =>
-                          handlePaymentMappingChange(
-                            mapping.payment_name,
-                            "ges_bank_id",
-                            e.target.value,
-                          )
-                        }
+
+                    <td className="align-middle">
+                      <div
+                        className="dropdown position-relative"
+                        ref={(el) => (bankRefs.current[index] = el)}
                       >
-                        <option value="">Nenhum banco</option>
-                        {banks.map((bank) => (
-                          <option key={bank.id} value={bank.id}>
-                            {bank.name ||
-                              bank.description ||
-                              `Banco ${bank.id}`}
-                          </option>
-                        ))}
-                      </select>
+                        <input
+                          type="text"
+                          className="form-control"
+                          placeholder="Procurar banco"
+                          value={mapping.bankSearch}
+                          onChange={(e) =>
+                            handleBankSearchChange(index, e.target.value)
+                          }
+                          onFocus={() =>
+                            setPaymentMappingsState((prev) =>
+                              prev.map((m, i) =>
+                                i === index
+                                  ? { ...m, showBankDropdown: true }
+                                  : m,
+                              ),
+                            )
+                          }
+                          autoComplete="off"
+                        />
+
+                        {mapping.bankSearch.length > 0 && (
+                          <button
+                            type="button"
+                            className="btn position-absolute top-50 end-0 translate-middle-y me-2"
+                            style={{
+                              color: "red",
+                              fontSize: "1.2rem",
+                              padding: "0",
+                            }}
+                            onClick={() => clearBank(index)}
+                            title="Limpar seleção"
+                          >
+                            &times;
+                          </button>
+                        )}
+
+                        <div
+                          className={`dropdown-menu ${
+                            mapping.showBankDropdown ? "show" : ""
+                          }`}
+                          style={{
+                            width: "100%",
+                            maxHeight: "200px", // mostra até 5 bancos
+                            overflowY: "auto",
+                            overflowX: "hidden",
+                            boxShadow: "0 4px 8px rgba(0,0,0,0.1)",
+                          }}
+                        >
+                          <button
+                            type="button"
+                            className="dropdown-item"
+                            onClick={() => handleBankSelect(index, { id: "" })}
+                          >
+                            Nenhum banco
+                          </button>
+                          {getFilteredBanks(mapping.bankSearch).length > 0 ? (
+                            getFilteredBanks(mapping.bankSearch).map((bank) => (
+                              <button
+                                key={bank.id}
+                                type="button"
+                                className="dropdown-item"
+                                onClick={() => handleBankSelect(index, bank)}
+                              >
+                                {bank.name ||
+                                  bank.description ||
+                                  `Banco ${bank.id}`}
+                              </button>
+                            ))
+                          ) : (
+                            <span className="dropdown-item text-danger">
+                              Nenhum banco encontrado.
+                            </span>
+                          )}
+                        </div>
+
+                        <input
+                          type="hidden"
+                          name={`paymentMappings[${index}][ges_bank_id]`}
+                          value={mapping.ges_bank_id}
+                        />
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -398,7 +676,7 @@ export default function ConfigForm() {
           onChange={(e) => setFinalizeChecked(e.target.checked)}
           role="switch"
         />
-        <label htmlFor="finalizeInvoice" className="form-check-label fw-medium">
+        <label htmlFor="finalizeInvoice" className="form-label fw-medium">
           Finalizar Fatura
         </label>
       </div>

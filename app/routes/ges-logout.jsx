@@ -4,6 +4,7 @@ import prisma from "../../prisma/client";
 export async function loader() {
   try {
     await prisma.GESlogin.deleteMany({});
+    await prisma.GESpaymentMap.deleteMany({});
     return redirect("/ges-login?logout=true", {
       headers: {
         "X-Remix-Revalidate": "1",

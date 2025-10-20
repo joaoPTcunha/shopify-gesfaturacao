@@ -286,7 +286,7 @@ export default function ConfigPage() {
     <Layout>
       <div className="container mt-4">
         <div className="row justify-content-center">
-          <div className="col-md-10 col-lg-8">
+          <div className="col-md-12 col-lg-10">
             <div className="card border-0 shadow-sm">
               <div className="card-body text-center p-3">
                 <h1 className="display-6 fw-bold mb-5">
