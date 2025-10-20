@@ -1,0 +1,4 @@
+- Uncomment and fix fetchAllShopifyOrders.js function
+- Update ges-config.jsx loader to use fetchAllShopifyOrders instead of inline code, remove paymentMappings fetch
+- Update ges-config.jsx action to remove payment mapping saving
+- Update ConfigForm.jsx to display 1-column table for payment methods, remove mapping selects and state

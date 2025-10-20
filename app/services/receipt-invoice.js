@@ -46,27 +46,74 @@ export async function generateInvoice(order) {
     paymentMethods = Array.isArray(paymentMethodsData.data)
       ? paymentMethodsData.data
       : [];
+    if (paymentMethods.length === 0) {
+      throw new Error(
+        "Nenhum método de pagamento disponível na API GESFaturação",
+      );
+    }
   } catch (error) {
-    console.error("Erro ao buscar métodos de pagamento:", error.message);
+    throw new Error(`Falha ao obter métodos de pagamento: ${error.message}`);
   }
 
-  const selectedPaymentMethod = paymentMethods.find(
-    (method) => method.id === login.id_payment_method,
-  );
-  const payment = login.id_payment_method
-    ? parseInt(login.id_payment_method, 10)
-    : 3;
-  const needsBank = selectedPaymentMethod?.needsBank === "1";
+  let gesPaymentId = null;
+  let gesBankId = null;
+  let needsBank = false;
 
-  const bank = needsBank && login.id_bank ? parseInt(login.id_bank, 10) : 0;
+  if (!order.paymentGatewayNames || order.paymentGatewayNames.length === 0) {
+    throw new Error("Nenhum método de pagamento encontrado na encomenda");
+  }
 
-  if (
-    !login.id_serie ||
-    !login.id_product_shipping ||
-    !login.id_payment_method
-  ) {
+  const paymentGateway = order.paymentGatewayNames[0];
+  try {
+    const paymentMapping = await prisma.gESpaymentMap.findFirst({
+      where: {
+        id_shop: login.id.toString(),
+        payment_name: paymentGateway,
+      },
+    });
+
+    if (!paymentMapping || !paymentMapping.ges_payment_id) {
+      throw new Error(
+        `Nenhum mapeamento válido encontrado para o método de pagamento ${paymentGateway}. Configure na página de configuração.`,
+      );
+    }
+
+    gesPaymentId = parseInt(paymentMapping.ges_payment_id, 10);
+    gesBankId = paymentMapping.ges_bank_id
+      ? parseInt(paymentMapping.ges_bank_id, 10)
+      : null;
+
+    const selectedPaymentMethod = paymentMethods.find(
+      (method) => parseInt(method.id, 10) === gesPaymentId,
+    );
+    if (!selectedPaymentMethod) {
+      throw new Error(
+        `Método de pagamento GESFaturação com ID ${gesPaymentId} não encontrado na API`,
+      );
+    }
+
+    needsBank = selectedPaymentMethod.needsBank === "1";
+
+    if (needsBank && !gesBankId) {
+      throw new Error(
+        `Método de pagamento ${paymentGateway} (GES ID: ${gesPaymentId}) requer um banco, mas nenhum foi configurado`,
+      );
+    } else if (!needsBank && gesBankId) {
+      console.warn(
+        `Método de pagamento ${paymentGateway} (GES ID: ${gesPaymentId}) não requer banco, mas um banco foi configurado. Ignorando banco.`,
+      );
+      gesBankId = null;
+    }
+  } catch (error) {
+    console.error(
+      `Erro ao processar mapeamento de pagamento para ${paymentGateway}: ${error.message}`,
+    );
+    throw error;
+  }
+
+  if (!login.id_serie || !login.id_product_shipping) {
     throw new Error(
-      "Configuração incompleta: Por favor, verifique todos os campos obrigatorios na página de configuração.",
+      "Configuração incompleta: Por favor, verifique todos os campos obrigatórios na página de configuração.",
     );
   }
 
@@ -98,7 +145,7 @@ export async function generateInvoice(order) {
     const taxesData = await taxesResponse.json();
     availableTaxes = taxesData.data || [];
   } catch (error) {
-    throw new Error(
+    console.error(
       `Falha ao obter taxas: ${error.message}. Usando taxId padrão: 1`,
     );
   }
@@ -353,9 +400,9 @@ export async function generateInvoice(order) {
     date,
     expiration,
     coin: 1,
-    payment,
+    payment: gesPaymentId,
     needsBank,
-    bank,
+    bank: gesBankId,
     lines,
     finalize: login.finalized,
     reference: order.orderNumber,
@@ -406,8 +453,7 @@ export async function generateInvoice(order) {
     : new Date();
   const isFinalized = result.data?.finalize ?? login.finalized ?? true;
 
-  let savedInvoice = null;
-  let savedInvoiceNumber = invoiceNumber;
+  let savedInvoice;
   if (isFinalized) {
     try {
       savedInvoice = await prisma.gESinvoices.create({
@@ -469,6 +515,7 @@ export async function generateInvoice(order) {
       size: contentLength,
     };
   } catch (err) {
+    console.warn(`Erro ao gerar arquivo PDF: ${err.message}`);
     invoiceFile = null;
   }
 
@@ -486,7 +533,7 @@ export async function generateInvoice(order) {
       emailActuallySent = true;
     } catch (err) {
       throw new Error(
-        `Falha ao enviar email para a fatura ${savedInvoiceNumber}: ${err.message}`,
+        `Falha ao enviar email para a fatura ${invoiceNumber}: ${err.message}`,
       );
     }
   }
@@ -501,7 +548,7 @@ export async function generateInvoice(order) {
     products: productResults,
     invoice: result,
     invoiceFile,
-    invoiceNumber: savedInvoiceNumber,
+    invoiceNumber,
     isFinalized,
     emailSent: emailActuallySent,
     success: true,

@@ -4,7 +4,7 @@ import {
   useSearchParams,
 } from "@remix-run/react";
 import { redirect, json } from "@remix-run/node";
-import prisma from "../../prisma/client"; // Ensure this path is correct
+import prisma from "../../prisma/client";
 import Layout from "../components/Layout";
 import LoginForm from "../components/LoginForm";
 import { useEffect, useState, useRef } from "react";
@@ -56,15 +56,6 @@ export async function action({ request }) {
     if (!dom_licenca || !username || !password) {
       return json(
         { error: "Todos os campos são obrigatórios" },
-        { status: 400 },
-      );
-    }
-
-    try {
-      new URL(dom_licenca);
-    } catch {
-      return json(
-        { error: "Domínio da API inválido. Por favor, insira um URL válido." },
         { status: 400 },
       );
     }
@@ -125,8 +116,6 @@ export async function action({ request }) {
         token,
         id_serie: data.id_serie ?? "",
         id_product_shipping: data.id_product_shipping ?? "",
-        id_bank: data.id_bank ?? "",
-        id_payment_method: data.id_payment_method ?? "",
         date_login: new Date().toISOString(),
         date_expire:
           data.expire_date ??
@@ -178,18 +167,6 @@ export default function LoginPage() {
       setHasShownLogoutToast(false);
     }
   }, [logout, searchParams]);
-
-  useEffect(() => {
-    if (isAuthenticated && !logout) {
-      revalidator.revalidate();
-      toast.success("Sessão ativa! Redirecionando para encomendas...", {
-        duration: 2000,
-      });
-      setTimeout(() => {
-        window.location.href = "/ges-orders";
-      }, 2000);
-    }
-  }, [isAuthenticated, logout, revalidator]);
 
   return (
     <Layout>

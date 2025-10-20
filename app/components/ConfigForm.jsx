@@ -13,10 +13,10 @@ export default function ConfigForm() {
     services,
     banks,
     paymentMethods,
+    shopifyPaymentGateways,
+    paymentMappings,
     currentSerieId,
     currentServiceId,
-    currentBankId,
-    currentPaymentMethodId,
     finalized = true,
     email_auto = true,
     isLoggedIn = false,
@@ -40,23 +40,22 @@ export default function ConfigForm() {
   const [selectedSerieId, setSelectedSerieId] = useState(currentSerieId || "");
   const [showSeriesDropdown, setShowSeriesDropdown] = useState(false);
 
-  const [bankSearch, setBankSearch] = useState(
-    banks?.find((b) => b.id === currentBankId)?.name ||
-      banks?.find((b) => b.id === currentBankId)?.description ||
-      "",
+  const [paymentMappingsState, setPaymentMappingsState] = useState(
+    shopifyPaymentGateways.map((gateway) => {
+      const mapping = paymentMappings.find((m) => m.payment_name === gateway);
+      return {
+        payment_name: gateway,
+        ges_payment_id: mapping?.ges_payment_id || "",
+        ges_bank_id: mapping?.ges_bank_id || "",
+      };
+    }),
   );
-  const [selectedBankId, setSelectedBankId] = useState(currentBankId || "");
-  const [showBankDropdown, setShowBankDropdown] = useState(false);
 
-  const [selectedPaymentMethodId, setSelectedPaymentMethodId] = useState(
-    currentPaymentMethodId || "",
-  );
   const [finalizeChecked, setFinalizeChecked] = useState(finalized);
   const [emailAutoChecked, setEmailAutoChecked] = useState(email_auto);
 
   const servicesRef = useRef(null);
   const seriesRef = useRef(null);
-  const bankRef = useRef(null);
 
   const filteredServices =
     services?.filter((service) =>
@@ -74,15 +73,6 @@ export default function ConfigForm() {
         : true,
     ) || [];
 
-  const filteredBanks =
-    banks?.filter((bank) =>
-      bankSearch
-        ? (bank.name || bank.description || `Banco ${bank.id}`)
-            ?.toLowerCase()
-            .includes(bankSearch.toLowerCase())
-        : true,
-    ) || [];
-
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (servicesRef.current && !servicesRef.current.contains(event.target)) {
@@ -90,9 +80,6 @@ export default function ConfigForm() {
       }
       if (seriesRef.current && !seriesRef.current.contains(event.target)) {
         setShowSeriesDropdown(false);
-      }
-      if (bankRef.current && !bankRef.current.contains(event.target)) {
-        setShowBankDropdown(false);
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
@@ -133,12 +120,6 @@ export default function ConfigForm() {
     setShowSeriesDropdown(false);
   };
 
-  const handleBankSelect = (bank) => {
-    setSelectedBankId(bank.id);
-    setBankSearch(bank.name || bank.description || `Banco ${bank.id}`);
-    setShowBankDropdown(false);
-  };
-
   const clearServices = () => {
     setSelectedServiceId("");
     setServicesSearch("");
@@ -151,37 +132,59 @@ export default function ConfigForm() {
     setShowSeriesDropdown(true);
   };
 
-  const clearBank = () => {
-    setSelectedBankId("");
-    setBankSearch("");
-    setShowBankDropdown(true);
+  const handlePaymentMappingChange = (paymentName, field, value) => {
+    setPaymentMappingsState((prev) =>
+      prev.map((mapping) =>
+        mapping.payment_name === paymentName
+          ? { ...mapping, [field]: value }
+          : mapping,
+      ),
+    );
   };
 
-  const handlePaymentMethodSelect = (methodId) => {
-    setSelectedPaymentMethodId(methodId);
-  };
   const handleSubmit = (event) => {
-    const selectedMethod = paymentMethods.find(
-      (method) => method.id === selectedPaymentMethodId,
-    );
-    if (selectedMethod?.needsBank === "0" && selectedBankId) {
+    // Validate payment mappings and show warnings for unnecessary banks
+    const invalidMappings = [];
+    const warnings = [];
+
+    const updatedMappings = paymentMappingsState.map((mapping) => {
+      const method = paymentMethods.find(
+        (m) => m.id === mapping.ges_payment_id,
+      );
+
+      // Check for invalid configurations
+      if (method?.needsBank === "1" && !mapping.ges_bank_id) {
+        invalidMappings.push(mapping.payment_name);
+      } else if (method?.needsBank === "0" && mapping.ges_bank_id) {
+        warnings.push(
+          `Método de pagamento ${mapping.payment_name} não requer banco. O banco selecionado será ignorado e enviado como vazio.`,
+        );
+        // Clear ges_bank_id for submission
+        return { ...mapping, ges_bank_id: "" };
+      }
+      return mapping;
+    });
+
+    if (invalidMappings.length > 0) {
       event.preventDefault();
       toast.error(
-        "O pagamento foi efetuado sem um banco associado. Atualize as configurações para corrigir.",
-        {
-          duration: 5000,
-        },
+        `Configuração inválida: Os métodos de pagamento [${invalidMappings.join(
+          ", ",
+        )}] requerem um banco selecionado.`,
+        { duration: 5000 },
       );
-    } else if (selectedMethod?.needsBank === "1" && !selectedBankId) {
-      event.preventDefault();
-      toast.error(
-        "Este método de pagamento requer a seleção de um banco. Por favor, selecione um banco.",
-        {
-          duration: 5000,
-        },
-      );
+      return;
     }
+
+    // Show warnings for unnecessary banks
+    warnings.forEach((warning) => {
+      toast.warning(warning, { duration: 5000 });
+    });
+
+    // Update state to clear ges_bank_id for methods that don't need it
+    setPaymentMappingsState(updatedMappings);
   };
+
   return (
     <Form method="post" className="p-2" lang="pt-PT" onSubmit={handleSubmit}>
       <div className="mb-4" ref={seriesRef}>
@@ -232,7 +235,7 @@ export default function ConfigForm() {
               ))
             ) : (
               <span className="dropdown-item text-danger">
-                Sessão expirada. Por favor, faça login novamente.
+                Nenhuma série encontrada.
               </span>
             )}
           </div>
@@ -288,7 +291,7 @@ export default function ConfigForm() {
               ))
             ) : (
               <span className="dropdown-item text-danger">
-                Sessão expirada. Por favor, faça login novamente.
+                Nenhum serviço encontrado.
               </span>
             )}
           </div>
@@ -303,43 +306,74 @@ export default function ConfigForm() {
 
       <div className="mb-4">
         <label className="form-label fw-bold">
-          Selecionar Método de Pagamento
+          Mapear Métodos de Pagamento do Shopify
         </label>
-        {paymentMethods.length > 0 ? (
+        {shopifyPaymentGateways.length > 0 ? (
           <div className="table-responsive">
             <table className="table table-hover table-bordered">
               <thead className="table-light">
                 <tr>
-                  <th scope="col">Selecione</th>
-                  <th scope="col">Nome</th>
-                  <th scope="col">Descrição</th>
-                  <th scope="col">Usa Banco?</th>
+                  <th scope="col">Método de Pagamento (Shopify)</th>
+                  <th scope="col">Método de Pagamento (GESFaturação)</th>
+                  <th scope="col">Banco (GESFaturação)</th>
                 </tr>
               </thead>
               <tbody>
-                {paymentMethods.map((method) => (
-                  <tr
-                    key={method.id}
-                    onClick={() => handlePaymentMethodSelect(method.id)}
-                    style={{ cursor: "pointer" }}
-                    className={
-                      selectedPaymentMethodId === method.id
-                        ? "table-primary"
-                        : ""
-                    }
-                  >
+                {paymentMappingsState.map((mapping, index) => (
+                  <tr key={mapping.payment_name}>
                     <td>
+                      {mapping.payment_name}
                       <input
-                        type="radio"
-                        name="id_payment_method"
-                        value={method.id}
-                        checked={selectedPaymentMethodId === method.id}
-                        onChange={() => handlePaymentMethodSelect(method.id)}
+                        type="hidden"
+                        name={`paymentMappings[${index}][payment_name]`}
+                        value={mapping.payment_name}
                       />
                     </td>
-                    <td>{method.name}</td>
-                    <td>{method.description}</td>
-                    <td>{method.needsBank === "1" ? "Sim" : "Não"}</td>
+                    <td>
+                      <select
+                        name={`paymentMappings[${index}][ges_payment_id]`}
+                        className="form-select"
+                        value={mapping.ges_payment_id}
+                        onChange={(e) =>
+                          handlePaymentMappingChange(
+                            mapping.payment_name,
+                            "ges_payment_id",
+                            e.target.value,
+                          )
+                        }
+                        required
+                      >
+                        <option value="">Selecione um método</option>
+                        {paymentMethods.map((method) => (
+                          <option key={method.id} value={method.id}>
+                            {method.name} ({method.description})
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td>
+                      <select
+                        name={`paymentMappings[${index}][ges_bank_id]`}
+                        className="form-select"
+                        value={mapping.ges_bank_id}
+                        onChange={(e) =>
+                          handlePaymentMappingChange(
+                            mapping.payment_name,
+                            "ges_bank_id",
+                            e.target.value,
+                          )
+                        }
+                      >
+                        <option value="">Nenhum banco</option>
+                        {banks.map((bank) => (
+                          <option key={bank.id} value={bank.id}>
+                            {bank.name ||
+                              bank.description ||
+                              `Banco ${bank.id}`}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -347,76 +381,10 @@ export default function ConfigForm() {
           </div>
         ) : (
           <div className="alert alert-warning" role="alert">
-            Nenhum método de pagamento disponível. Verifique a sessão.
+            Nenhum método de pagamento do Shopify disponível. Verifique as
+            credenciais da API do Shopify.
           </div>
         )}
-      </div>
-
-      <div className="mb-4" ref={bankRef}>
-        <label htmlFor="bankSearch" className="form-label fw-bold">
-          Selecionar Banco (apenas se o método de pagamento exigir banco)
-        </label>
-
-        <div className="dropdown position-relative">
-          <input
-            type="text"
-            id="bankSearch"
-            className="form-control"
-            placeholder="Introduza o nome do banco para filtrar"
-            value={bankSearch}
-            onChange={(e) => {
-              setBankSearch(e.target.value);
-              setSelectedBankId("");
-              setShowBankDropdown(true);
-            }}
-            onFocus={() => setShowBankDropdown(true)}
-            autoComplete="off"
-          />
-
-          {bankSearch.length > 0 && (
-            <button
-              type="button"
-              className="btn position-absolute top-50 end-0 translate-middle-y me-2"
-              style={{ color: "red", fontSize: "1.2rem", padding: 0 }}
-              onClick={clearBank}
-              title="Limpar seleção"
-            >
-              &times;
-            </button>
-          )}
-
-          <div
-            className={`dropdown-menu ${showBankDropdown ? "show" : ""}`}
-            style={{
-              maxHeight: "220px",
-              overflowY: "auto",
-              width: "100%",
-              zIndex: 1050,
-            }}
-          >
-            {filteredBanks.length > 0 ? (
-              filteredBanks.map((bank) => (
-                <button
-                  key={bank.id}
-                  type="button"
-                  className="dropdown-item text-start"
-                  onClick={() => handleBankSelect(bank)}
-                >
-                  {bank.name || `Banco ${bank.id}`}
-                  {bank.description && (
-                    <div className="text-muted small">{bank.description}</div>
-                  )}
-                </button>
-              ))
-            ) : (
-              <span className="dropdown-item text-danger">
-                Nenhum banco disponível. Verifique a sessão.
-              </span>
-            )}
-          </div>
-        </div>
-
-        <input type="hidden" name="id_bank" value={selectedBankId} />
       </div>
 
       <div className="mb-4 form-check form-switch">

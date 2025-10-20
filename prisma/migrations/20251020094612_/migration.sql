@@ -24,8 +24,6 @@ CREATE TABLE "GESlogin" (
     "token" TEXT NOT NULL,
     "id_serie" TEXT NOT NULL,
     "id_product_shipping" TEXT NOT NULL,
-    "id_bank" TEXT,
-    "id_payment_method" TEXT NOT NULL,
     "finalized" BOOLEAN NOT NULL DEFAULT true,
     "email_auto" BOOLEAN NOT NULL DEFAULT true,
     "date_login" TEXT NOT NULL,
@@ -42,4 +40,13 @@ CREATE TABLE "GESinvoices" (
     "invoice_total" TEXT NOT NULL,
     "invoice_date" DATETIME,
     "invoice_status" INTEGER NOT NULL
+);
+
+-- CreateTable
+CREATE TABLE "GESpaymentMap" (
+    "id_map" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "id_shop" INTEGER NOT NULL,
+    "payment_name" TEXT NOT NULL,
+    "ges_payment_id" TEXT,
+    "ges_bank_id" TEXT
 );
